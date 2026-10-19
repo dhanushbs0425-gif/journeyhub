@@ -136,6 +136,19 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 5000;
 
 async function startServer() {
+  server.listen(PORT, '0.0.0.0', () => {
+    const { getEnvDiagnostics } = require('./src/config/env');
+    const diag = getEnvDiagnostics();
+    console.log(`====================================================`);
+    console.log(`🚀 JourneyHub Server running on http://0.0.0.0:${PORT}`);
+    console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`📦 Database: ${isMemoryDB() ? 'Embedded MongoDB (Self-contained in-memory)' : 'External Persistent MongoDB'}`);
+    console.log(`----------------------------------------------------`);
+    console.log(`📧 Gmail SMTP Service: ${diag.isConfigured ? 'READY (Real Gmail OTP enabled for ' + diag.smtpUserMasked + ')' : 'UNCONFIGURED'}`);
+    console.log(`📱 MSG91 SMS Service:  ${diag.isMsg91Configured ? 'READY (AuthKey: ' + diag.msg91AuthKeyMasked + ', Template: ' + diag.msg91TemplateId + ')' : 'UNCONFIGURED'}`);
+    console.log(`====================================================`);
+  });
+
   try {
     await connectDB();
 
@@ -148,22 +161,8 @@ async function startServer() {
       // Ensure the three predefined Organiser accounts (Sai, Dhanush, Divya) exist without overwriting
       await seedOrganisers();
     }
-
-    server.listen(PORT, '0.0.0.0', () => {
-      const { getEnvDiagnostics } = require('./src/config/env');
-      const diag = getEnvDiagnostics();
-      console.log(`====================================================`);
-      console.log(`🚀 JourneyHub Server running on http://0.0.0.0:${PORT}`);
-      console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`📦 Database: ${isMemoryDB() ? 'Embedded MongoDB (Self-contained in-memory)' : 'External Persistent MongoDB'}`);
-      console.log(`----------------------------------------------------`);
-      console.log(`📧 Gmail SMTP Service: ${diag.isConfigured ? 'READY (Real Gmail OTP enabled for ' + diag.smtpUserMasked + ')' : 'UNCONFIGURED'}`);
-      console.log(`📱 MSG91 SMS Service:  ${diag.isMsg91Configured ? 'READY (AuthKey: ' + diag.msg91AuthKeyMasked + ', Template: ' + diag.msg91TemplateId + ')' : 'UNCONFIGURED'}`);
-      console.log(`====================================================`);
-    });
   } catch (error) {
-    console.error('Failed to start server:', error);
-    process.exit(1);
+    console.error('[DB] Database initialization warning:', error.message);
   }
 }
 
