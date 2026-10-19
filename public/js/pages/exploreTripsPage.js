@@ -80,8 +80,16 @@ const ExploreTripsPage = {
 
   pollInterval: null,
   socketAttached: false,
+  fetchError: null,
+  _awakeHandler: null,
 
   async mount() {
+    this._awakeHandler = async () => {
+      await this.fetchData(true);
+      this.renderTrips();
+    };
+    window.addEventListener('backend_awake', this._awakeHandler);
+
     await this.fetchData();
     this.attachEventListeners();
     this.renderTrips();
@@ -91,11 +99,15 @@ const ExploreTripsPage = {
     this.pollInterval = setInterval(async () => {
       await this.fetchData(true);
       this.renderTrips();
-    }, 5000);
+    }, 6000);
   },
 
   destroy() {
     this.clearIntervals();
+    if (this._awakeHandler) {
+      window.removeEventListener('backend_awake', this._awakeHandler);
+      this._awakeHandler = null;
+    }
   },
 
   clearIntervals() {
@@ -130,6 +142,7 @@ const ExploreTripsPage = {
 
   async fetchData(silent = false) {
     try {
+      this.fetchError = null;
       // Fetch public/published trips (visible to all users across all 3 organisers)
       const tripsRes = await window.API.get('/api/trips?explore=true');
       this.trips = tripsRes?.trips || [];
@@ -144,8 +157,9 @@ const ExploreTripsPage = {
         }
       }
     } catch (err) {
+      this.fetchError = err;
       if (!silent) {
-        window.Toast?.show('Failed to load published trips: ' + err.message, 'error');
+        console.warn('[ExploreTrips] Load trips warning:', err.message);
       }
     }
   },
@@ -212,6 +226,23 @@ const ExploreTripsPage = {
     });
 
     if (filtered.length === 0) {
+      if (this.fetchError) {
+        if (window.API && window.API.renderRetryCard) {
+          window.API.renderRetryCard(container, this.fetchError.message, async () => {
+            await ExploreTripsPage.fetchData();
+            ExploreTripsPage.renderTrips();
+          });
+        } else {
+          container.innerHTML = `
+            <div style="grid-column: 1 / -1; text-align: center; padding: 3rem 1rem;" class="jh-card">
+              <p style="color: var(--danger);">${this.fetchError.message}</p>
+              <button class="btn btn-teal btn-sm" onclick="ExploreTripsPage.fetchData().then(() => ExploreTripsPage.renderTrips())"><i class="fas fa-redo"></i> Retry</button>
+            </div>
+          `;
+        }
+        return;
+      }
+
       container.innerHTML = `
         <div style="grid-column: 1 / -1; text-align: center; padding: 4rem 1rem;" class="jh-card">
           <i class="fas fa-search-location" style="font-size: 3rem; color: var(--text-muted); margin-bottom: 1rem;"></i>

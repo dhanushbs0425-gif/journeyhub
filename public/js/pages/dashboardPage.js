@@ -98,6 +98,12 @@ const DashboardPage = {
 
     this.attachSocket();
 
+    this._awakeHandler = () => {
+      DashboardPage.loadTripsList(true);
+      DashboardPage.loadRequestsSummary(true);
+    };
+    window.addEventListener('backend_awake', this._awakeHandler);
+
     this.clearIntervals();
     this.pollInterval = setInterval(async () => {
       await DashboardPage.loadRequestsSummary(true);
@@ -106,6 +112,10 @@ const DashboardPage = {
 
   destroy() {
     this.clearIntervals();
+    if (this._awakeHandler) {
+      window.removeEventListener('backend_awake', this._awakeHandler);
+      this._awakeHandler = null;
+    }
   },
 
   clearIntervals() {
@@ -356,11 +366,16 @@ const DashboardPage = {
       `;
     } catch (err) {
       if (!silent) {
-        container.innerHTML = `
-          <div class="empty-state">
-            <p style="color: var(--danger);">Failed to load trips: ${err.message}</p>
-          </div>
-        `;
+        if (window.API && window.API.renderRetryCard) {
+          window.API.renderRetryCard(container, err.message, () => DashboardPage.loadTripsList());
+        } else {
+          container.innerHTML = `
+            <div class="empty-state">
+              <p style="color: var(--danger);">Failed to load trips: ${err.message}</p>
+              <button class="btn btn-outline btn-sm" onclick="DashboardPage.loadTripsList()" style="margin-top: 0.5rem;"><i class="fas fa-redo"></i> Retry</button>
+            </div>
+          `;
+        }
       }
     }
   },

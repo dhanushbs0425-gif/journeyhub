@@ -153,7 +153,11 @@ const LoginPage = {
           btn.innerHTML = `<span>Sign In</span>`;
         }
 
-        LoginPage.showAlert(err.message || 'Invalid mobile phone/email or password. Please try again.', 'error');
+        const isWakeup = err.isColdStart || err.status === 502 || err.status === 503 || err.message?.includes('waking up') || err.message?.includes('reach');
+        const alertMsg = isWakeup
+          ? '⚡ Cloud server is waking up (Render free tier spin-up). Please wait a few seconds and click Sign In again.'
+          : (err.message || 'Invalid email/username or password. Please try again.');
+        LoginPage.showAlert(alertMsg, isWakeup ? 'warning' : 'error');
       }
     });
   },

@@ -326,14 +326,19 @@ const TripDetailsPage = {
         </div>
       `;
     } catch (err) {
-      container.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-state-icon"><i class="fas fa-exclamation-triangle"></i></div>
-          <h3 class="empty-state-title">Trip Not Found</h3>
-          <p class="empty-state-text" style="color: var(--danger);">${err.message || 'Unable to load trip details.'}</p>
-          <a href="#/dashboard" class="btn btn-teal"><i class="fas fa-arrow-left"></i> Back to Dashboard</a>
-        </div>
-      `;
+      if (window.API && window.API.renderRetryCard) {
+        window.API.renderRetryCard(container, err.message, () => TripDetailsPage.mount(params));
+      } else {
+        container.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon"><i class="fas fa-exclamation-triangle"></i></div>
+            <h3 class="empty-state-title">Unable to Load Trip</h3>
+            <p class="empty-state-text" style="color: var(--danger);">${err.message || 'Unable to load trip details.'}</p>
+            <button class="btn btn-teal btn-sm" onclick="TripDetailsPage.mount({ tripId: '${tripId}' })"><i class="fas fa-redo"></i> Retry</button>
+            <a href="#/dashboard" class="btn btn-outline btn-sm" style="margin-left: 0.5rem;"><i class="fas fa-arrow-left"></i> Back to Dashboard</a>
+          </div>
+        `;
+      }
     }
   },
 

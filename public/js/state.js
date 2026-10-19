@@ -1,5 +1,7 @@
 /**
  * JourneyHub Reactive State Store
+ * Resilient multi-layer session cache: instantly hydrates from localStorage,
+ * validates in background, and preserves authenticated views during cold starts.
  */
 const State = {
   currentUser: null,
@@ -7,6 +9,31 @@ const State = {
   trips: [],
   unreadNotificationsCount: 0,
   listeners: [],
+  isRestoringSession: false,
+
+  initSync() {
+    // Synchronously hydrate cached user from localStorage for instant, zero-delay render
+    try {
+      const cached = localStorage.getItem('journeyhub_cached_user');
+      const token = localStorage.getItem('journeyhub_jwt_token');
+      if (token && cached) {
+        this.currentUser = JSON.parse(cached);
+        if (this.currentUser?.preferences?.theme) {
+          document.documentElement.setAttribute('data-theme', this.currentUser.preferences.theme);
+        }
+      }
+    } catch (e) {
+      console.warn('[State] Could not parse cached user:', e);
+    }
+
+    // Auto-listen for backend awakening to refresh stale data
+    window.addEventListener('backend_awake', () => {
+      console.log('[State] Backend awake event caught, refreshing user state & trips...');
+      if (window.API && window.API.getToken()) {
+        this.initUser(true);
+      }
+    });
+  },
 
   subscribe(listener) {
     this.listeners.push(listener);
@@ -21,13 +48,18 @@ const State = {
 
   setUser(user) {
     this.currentUser = user;
-    if (user && user.preferences?.theme) {
-      document.documentElement.setAttribute('data-theme', user.preferences.theme);
-    }
     if (user) {
+      try {
+        localStorage.setItem('journeyhub_cached_user', JSON.stringify(user));
+      } catch (e) {}
+
+      if (user.preferences?.theme) {
+        document.documentElement.setAttribute('data-theme', user.preferences.theme);
+      }
       this.loadNotificationsCount();
       this.startNotificationPolling();
     } else {
+      localStorage.removeItem('journeyhub_cached_user');
       if (this._notifPoller) clearInterval(this._notifPoller);
       this.setUnreadNotificationsCount(0);
     }
@@ -59,24 +91,43 @@ const State = {
     this.notify('notifications_count_changed', count);
   },
 
-  async initUser() {
-    const token = window.API.getToken();
-    if (!token) return null;
+  async initUser(silent = false) {
+    const token = window.API?.getToken();
+    if (!token) {
+      this.setUser(null);
+      return null;
+    }
+
+    this.isRestoringSession = true;
 
     try {
-      const res = await window.API.get('/api/auth/me');
+      const res = await window.API.get('/api/auth/me', { timeout: 25000 });
+      this.isRestoringSession = false;
+
       if (res && res.user) {
         this.setUser(res.user);
-        await this.loadTrips();
-        await this.loadNotificationsCount();
-        await this.loadWishlist();
+        await Promise.allSettled([
+          this.loadTrips(),
+          this.loadNotificationsCount(),
+          this.loadWishlist()
+        ]);
         return res.user;
       }
     } catch (err) {
-      console.warn('Failed to restore session:', err.message);
-      this.setUser(null);
+      this.isRestoringSession = false;
+      // If error is 401 (unauthorized / token expired), clear session
+      if (err.status === 401) {
+        console.warn('[State] Session token expired (401), logging out.');
+        this.setUser(null);
+        window.API.clearToken();
+        return null;
+      }
+
+      // If error is due to cold-start or temporary network failure, DO NOT logout!
+      console.warn('[State] Background session verification postponed (backend warming up):', err.message);
+      // Retain cached user so UI doesn't kick user out
     }
-    return null;
+    return this.currentUser;
   },
 
   async loadTrips() {
@@ -99,7 +150,7 @@ const State = {
         }
       }
     } catch (err) {
-      console.error('Failed to load trips:', err);
+      console.warn('[State] Failed to load trips in background:', err.message);
     }
   },
 
@@ -111,7 +162,7 @@ const State = {
         this.setUnreadNotificationsCount(res.unreadCount || 0);
       }
     } catch (err) {
-      console.warn('Failed to load notifications count:', err.message);
+      console.warn('[State] Failed to load notifications count:', err.message);
     }
   },
 
@@ -121,7 +172,7 @@ const State = {
       if (this.currentUser) {
         this.loadNotificationsCount();
       }
-    }, 10000); // Check every 10 seconds for real-time notification alerts
+    }, 12000);
   },
 
   wishlistIds: new Set(),
@@ -147,7 +198,7 @@ const State = {
         this.notify('wishlist_updated', this.wishlistIds);
       }
     } catch (err) {
-      console.warn('Failed to load wishlist:', err.message);
+      console.warn('[State] Failed to load wishlist:', err.message);
     }
   },
 
@@ -183,6 +234,9 @@ const State = {
   }
 };
 
+// Immediate synchronous hydration
+State.initSync();
+
 /**
  * Universal Currency Symbol Resolver
  */
@@ -217,4 +271,3 @@ function formatCurrency(amount, currencyCode = 'USD') {
 window.State = State;
 window.getCurrencySymbol = getCurrencySymbol;
 window.formatCurrency = formatCurrency;
-

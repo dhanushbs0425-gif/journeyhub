@@ -97,6 +97,11 @@ app.use('/api/mystery-trips', mysteryTripRoutes);
 app.use('/api/wishlist', wishlistRoutes);
 
 
+// Lightweight Keep-Alive / Monitor Ping endpoints (for cron-jobs / uptime monitors)
+app.get(['/health', '/ping'], (req, res) => {
+  res.status(200).send('OK');
+});
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({

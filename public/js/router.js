@@ -97,8 +97,32 @@ const Router = {
       }
     }
 
-    // Auth guard
+    // Auth guard: If session is currently restoring and user has token, wait for it
     if (route.requiresAuth && !window.State.currentUser) {
+      if (window.API && window.API.getToken() && window.State.isRestoringSession) {
+        viewport.innerHTML = `
+          <div class="empty-state" style="padding: 4rem 1.5rem; text-align: center;">
+            <div class="spinner"></div>
+            <h3 style="margin-top: 1.25rem; font-size: 1.15rem; font-weight: 700; color: var(--text-main);">
+              Verifying Traveler Session...
+            </h3>
+            <p style="color: var(--text-secondary); max-width: 440px; margin: 0.5rem auto 1.25rem auto; font-size: 0.875rem; line-height: 1.5;">
+              Connecting to cloud engine to restore your session. If the free backend is waking up, this may take a moment.
+            </p>
+            <button class="btn btn-outline btn-sm" onclick="if(window.BackendStatus)window.BackendStatus.manualRetry()">
+              <i class="fas fa-satellite-dish"></i> Check Connection
+            </button>
+          </div>
+        `;
+        const checkRestored = setInterval(() => {
+          if (!window.State.isRestoringSession) {
+            clearInterval(checkRestored);
+            this.handleRouting();
+          }
+        }, 300);
+        return;
+      }
+
       window.Toast?.show('Please log in to access this page.', 'warning');
       window.location.hash = '#/login';
       return;
@@ -145,12 +169,16 @@ const Router = {
       }
     } catch (err) {
       console.error('[Router Render Error]:', err);
-      viewport.innerHTML = `
-        <div class="empty-state">
-          <p style="color: var(--danger); font-size: 1rem;">Failed to load view: ${err.message}</p>
-          <a href="#/dashboard" class="btn btn-outline btn-sm" style="margin-top: 1rem;">Return to Dashboard</a>
-        </div>
-      `;
+      if (window.API && window.API.renderRetryCard) {
+        window.API.renderRetryCard(viewport, err.message, () => this.handleRouting());
+      } else {
+        viewport.innerHTML = `
+          <div class="empty-state">
+            <p style="color: var(--danger); font-size: 1rem;">Failed to load view: ${err.message}</p>
+            <a href="#/dashboard" class="btn btn-outline btn-sm" style="margin-top: 1rem;">Return to Dashboard</a>
+          </div>
+        `;
+      }
     }
   },
 

@@ -18,12 +18,27 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
 
   <!-- Stylesheets -->
-  <link rel="stylesheet" href="/css/variables.css?v=2.3" />
-  <link rel="stylesheet" href="/css/layout.css?v=2.3" />
-  <link rel="stylesheet" href="/css/components.css?v=2.3" />
-  <link rel="stylesheet" href="/css/pages.css?v=2.3" />
+  <link rel="stylesheet" href="/css/variables.css?v=2.4" />
+  <link rel="stylesheet" href="/css/layout.css?v=2.4" />
+  <link rel="stylesheet" href="/css/components.css?v=2.4" />
+  <link rel="stylesheet" href="/css/pages.css?v=2.4" />
 </head>
 <body>
+
+  <!-- Instant Branded Boot Preloader (disappears within 250ms on client mount) -->
+  <div id="jh-boot-preloader">
+    <div class="jh-preloader-card">
+      <div class="jh-brand-logo">
+        <i class="fas fa-plane-departure"></i>
+      </div>
+      <h2 class="jh-brand-title">JourneyHub</h2>
+      <p class="jh-brand-tagline">Collaborative Travel Intelligence Platform</p>
+      <div class="jh-preloader-bar">
+        <div class="jh-preloader-progress"></div>
+      </div>
+      <p class="jh-preloader-status" id="jh-preloader-status">Initializing travel workspace...</p>
+    </div>
+  </div>
 
   <!-- App Main Shell -->
   <div id="app-shell">
@@ -60,47 +75,48 @@
   <script src="/socket.io/socket.io.js"></script>
 
   <!-- Core Scripts -->
-  <script src="/js/api.js?v=2.3"></script>
-  <script src="/js/state.js?v=2.3"></script>
-  <script src="/js/components/toast.js?v=2.3"></script>
-  <script src="/js/components/modal.js?v=2.3"></script>
-  <script src="/js/components/navbar.js?v=2.3"></script>
-  <script src="/js/components/sidebar.js?v=2.3"></script>
+  <script src="/js/api.js?v=2.4"></script>
+  <script src="/js/state.js?v=2.4"></script>
+  <script src="/js/components/backendStatus.js?v=2.4"></script>
+  <script src="/js/components/toast.js?v=2.4"></script>
+  <script src="/js/components/modal.js?v=2.4"></script>
+  <script src="/js/components/navbar.js?v=2.4"></script>
+  <script src="/js/components/sidebar.js?v=2.4"></script>
 
   <!-- Page View Controllers -->
-  <script src="/js/pages/landingPage.js?v=2.3"></script>
-  <script src="/js/pages/registerPage.js?v=2.3"></script>
-  <script src="/js/pages/loginPage.js?v=2.3"></script>
-  <script src="/js/pages/verifyOtpPage.js?v=2.3"></script>
-  <script src="/js/pages/profileSetupPage.js?v=2.3"></script>
-  <script src="/js/pages/forgotPasswordPage.js?v=2.3"></script>
-  <script src="/js/pages/resetPasswordPage.js?v=2.3"></script>
-  <script src="/js/pages/profilePage.js?v=2.3"></script>
-  <script src="/js/pages/dashboardPage.js?v=2.3"></script>
-  <script src="/js/pages/createTripPage.js?v=2.3"></script>
-  <script src="/js/pages/tripDetailsPage.js?v=2.3"></script>
-  <script src="/js/pages/destinationExplorerPage.js?v=2.3"></script>
-  <script src="/js/pages/itineraryPage.js?v=2.3"></script>
-  <script src="/js/pages/collaborationPage.js?v=2.3"></script>
-  <script src="/js/pages/expenseTrackerPage.js?v=2.3"></script>
-  <script src="/js/pages/expenseSettlementPage.js?v=2.3"></script>
-  <script src="/js/pages/packingPage.js?v=2.3"></script>
-  <script src="/js/pages/bookingPage.js?v=2.3"></script>
-  <script src="/js/pages/diaryPage.js?v=2.3"></script>
-  <script src="/js/pages/notificationsPage.js?v=2.3"></script>
-  <script src="/js/pages/reportsPage.js?v=2.3"></script>
-  <script src="/js/pages/settingsPage.js?v=2.3"></script>
+  <script src="/js/pages/landingPage.js?v=2.4"></script>
+  <script src="/js/pages/registerPage.js?v=2.4"></script>
+  <script src="/js/pages/loginPage.js?v=2.4"></script>
+  <script src="/js/pages/verifyOtpPage.js?v=2.4"></script>
+  <script src="/js/pages/profileSetupPage.js?v=2.4"></script>
+  <script src="/js/pages/forgotPasswordPage.js?v=2.4"></script>
+  <script src="/js/pages/resetPasswordPage.js?v=2.4"></script>
+  <script src="/js/pages/profilePage.js?v=2.4"></script>
+  <script src="/js/pages/dashboardPage.js?v=2.4"></script>
+  <script src="/js/pages/createTripPage.js?v=2.4"></script>
+  <script src="/js/pages/tripDetailsPage.js?v=2.4"></script>
+  <script src="/js/pages/destinationExplorerPage.js?v=2.4"></script>
+  <script src="/js/pages/itineraryPage.js?v=2.4"></script>
+  <script src="/js/pages/collaborationPage.js?v=2.4"></script>
+  <script src="/js/pages/expenseTrackerPage.js?v=2.4"></script>
+  <script src="/js/pages/expenseSettlementPage.js?v=2.4"></script>
+  <script src="/js/pages/packingPage.js?v=2.4"></script>
+  <script src="/js/pages/bookingPage.js?v=2.4"></script>
+  <script src="/js/pages/diaryPage.js?v=2.4"></script>
+  <script src="/js/pages/notificationsPage.js?v=2.4"></script>
+  <script src="/js/pages/reportsPage.js?v=2.4"></script>
+  <script src="/js/pages/settingsPage.js?v=2.4"></script>
 
   <!-- Role-Based & Distinctive Features Controllers -->
-  <script src="/js/pages/exploreTripsPage.js?v=2.3"></script>
-  <script src="/js/pages/myRequestsPage.js?v=2.3"></script>
-  <script src="/js/pages/organiserRequestsPage.js?v=2.3"></script>
-  <script src="/js/pages/organiserTripsPage.js?v=2.3"></script>
-  <script src="/js/pages/mysteryTripsPage.js?v=2.3"></script>
-  <script src="/js/pages/wishlistPage.js?v=2.3"></script>
+  <script src="/js/pages/exploreTripsPage.js?v=2.4"></script>
+  <script src="/js/pages/myRequestsPage.js?v=2.4"></script>
+  <script src="/js/pages/organiserRequestsPage.js?v=2.4"></script>
+  <script src="/js/pages/organiserTripsPage.js?v=2.4"></script>
+  <script src="/js/pages/mysteryTripsPage.js?v=2.4"></script>
+  <script src="/js/pages/wishlistPage.js?v=2.4"></script>
 
   <!-- Router & Application Initialization -->
-  <script src="/js/router.js?v=2.3"></script>
-  <script src="/js/app.js?v=2.3"></script>
+  <script src="/js/router.js?v=2.4"></script>
+  <script src="/js/app.js?v=2.4"></script>
 </body>
 </html>

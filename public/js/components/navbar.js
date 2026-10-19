@@ -61,6 +61,9 @@ const Navbar = {
       </div>
 
       <div class="topbar-right">
+        <div class="backend-pill ${window.BackendStatus && window.BackendStatus.isWakingUp ? 'waking-up' : 'connected'}" id="navbar-backend-pill" title="${window.BackendStatus && window.BackendStatus.isWakingUp ? 'Cloud engine warming up' : 'Cloud engine connected'}" onclick="if(window.BackendStatus)window.BackendStatus.manualRetry()" style="cursor: pointer;">
+          ${window.BackendStatus && window.BackendStatus.isWakingUp ? '<span class="pulse-dot"></span> <span>Waking Up</span>' : '<i class="fas fa-cloud"></i> <span>Live</span>'}
+        </div>
         ${authSectionHtml}
       </div>
     `;

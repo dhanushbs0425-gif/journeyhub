@@ -156,28 +156,51 @@ const DestinationExplorerPage = {
   },
 
   async loadDestinations() {
+    // 1. Immediately hydrate from local cache if available for instant display
+    try {
+      const cached = localStorage.getItem('jh_dest_cache');
+      if (cached && this.destinations.length === 0) {
+        this.destinations = JSON.parse(cached);
+        this.populateStatesAndRender();
+      }
+    } catch (e) {}
+
+    // 2. Fetch fresh list from server
     try {
       const res = await window.API.get('/api/destinations?limit=100');
-      this.destinations = res.destinations || [];
-
-      // Populate unique states list
-      const stateSet = new Set();
-      this.destinations.forEach(d => {
-        if (d.state && d.state !== 'India') stateSet.add(d.state);
-      });
-      this.states = Array.from(stateSet).sort();
-
-      const stateSelect = document.getElementById('dest-state-filter');
-      if (stateSelect) {
-        stateSelect.innerHTML = `<option value="All">All States (India)</option>` + 
-          this.states.map(s => `<option value="${s}">${s}</option>`).join('');
+      if (res && res.destinations) {
+        this.destinations = res.destinations;
+        try {
+          localStorage.setItem('jh_dest_cache', JSON.stringify(this.destinations));
+        } catch (e) {}
+        this.populateStatesAndRender();
       }
-
-      this.initLeafletMap();
-      this.renderDestinationsGrid();
     } catch (err) {
-      console.error('Failed to load destinations:', err);
+      console.warn('Failed to fetch fresh destinations from server:', err.message);
+      if (this.destinations.length === 0) {
+        const grid = document.getElementById('destinations-grid');
+        if (grid && window.API && window.API.renderRetryCard) {
+          window.API.renderRetryCard(grid, err.message, () => this.loadDestinations());
+        }
+      }
     }
+  },
+
+  populateStatesAndRender() {
+    const stateSet = new Set();
+    this.destinations.forEach(d => {
+      if (d.state && d.state !== 'India') stateSet.add(d.state);
+    });
+    this.states = Array.from(stateSet).sort();
+
+    const stateSelect = document.getElementById('dest-state-filter');
+    if (stateSelect) {
+      stateSelect.innerHTML = `<option value="All">All States (India)</option>` + 
+        this.states.map(s => `<option value="${s}">${s}</option>`).join('');
+    }
+
+    this.initLeafletMap();
+    this.renderDestinationsGrid();
   },
 
   initLeafletMap() {
