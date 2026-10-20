@@ -24,8 +24,9 @@ function checkDir(dir) {
   }
 }
 
-checkDir(path.resolve('public'));
-checkDir(path.resolve('src'));
+const root = path.resolve(__dirname, '..');
+checkDir(path.join(root, 'public'));
+checkDir(path.join(root, 'src'));
 console.log(`Checked ${checked} files. Errors: ${errors}`);
 if (errors === 0) {
   console.log('ALL JS FILES PASSED SYNTAX CHECK!');

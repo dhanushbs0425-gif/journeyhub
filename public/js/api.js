@@ -9,8 +9,9 @@ const API = {
   getBaseUrl() {
     if (window.JOURNEYHUB_API_URL) return window.JOURNEYHUB_API_URL.replace(/\/$/, '');
     const hostname = window.location.hostname;
-    // If frontend is deployed on an independent static host (Render Static Site, GitHub Pages, Vercel, Netlify)
+    // If frontend is deployed on an independent static host (Cloudflare Pages, Render Static Site, GitHub Pages, Vercel, Netlify)
     if (
+      hostname.endsWith('pages.dev') ||
       hostname.endsWith('github.io') ||
       hostname.endsWith('vercel.app') ||
       hostname.endsWith('netlify.app') ||

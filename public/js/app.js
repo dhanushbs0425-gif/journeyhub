@@ -46,7 +46,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // 6. Connect Real-time Socket.IO Gateway in background (non-blocking)
   if (typeof io !== 'undefined') {
     try {
-      const socket = io({
+      const backendOrigin = (window.API && typeof window.API.getBaseUrl === 'function') ? window.API.getBaseUrl() : '';
+      const socket = backendOrigin ? io(backendOrigin, {
+        reconnection: true,
+        reconnectionAttempts: 15,
+        reconnectionDelay: 2000,
+        timeout: 20000
+      }) : io({
         reconnection: true,
         reconnectionAttempts: 15,
         reconnectionDelay: 2000,
