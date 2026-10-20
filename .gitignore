@@ -3,7 +3,12 @@ node_modules/
 .env.*
 *.env
 backend/.env
-.DS_Store
+.wrangler/
+scripts/backup_atlas_data.json
+scripts/test*.js
+scripts/createAtlasBackup.js
+scripts/inspectAtlasData.js
+scripts/auditArchitecture.js
 *.log
 dist/
 build/

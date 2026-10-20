@@ -81,6 +81,15 @@ async function runRealAuthAndOrganisersTests() {
     assert.strictEqual(preservedNewPass, true, 'Seed script must NOT overwrite modified password');
     assert.strictEqual(overwrittenInitialPass, false, 'Initial password should no longer match');
 
+    // Restore Sai's password for subsequent test runs
+    saiAfterReseed.password = process.env.ORGANISER_SAI_PASSWORD || 'Organiser@Sai2026';
+    await saiAfterReseed.save();
+    const saiGmailToRestore = await User.findOne({ email: 'sai@gmail.com' }).select('+password');
+    if (saiGmailToRestore) {
+      saiGmailToRestore.password = process.env.ORGANISER_SAI_PASSWORD || 'Organiser@Sai2026';
+      await saiGmailToRestore.save();
+    }
+
     console.log('✔ Test 2 passed: Seed script preserves existing account passwords.');
 
     // ----------------------------------------------------

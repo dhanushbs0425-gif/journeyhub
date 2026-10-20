@@ -39,13 +39,13 @@ async function sendEmailOtp(req, res, next) {
       });
     }
 
-    // Check if Gmail SMTP provider is configured
+    // Check if Email provider (Resend or Gmail SMTP) is configured
     if (!emailService.isSmtpConfigured() && process.env.NODE_ENV !== 'test') {
       const diag = require('../config/env').getEnvDiagnostics();
-      return res.status(400).json({
+      return res.status(503).json({
         success: false,
         code: 'SMTP_NOT_CONFIGURED',
-        message: 'Gmail SMTP credentials are not configured in Render. Please add SMTP_USER and SMTP_PASS in the Render dashboard under Environment.',
+        message: 'Email service is not configured. Please add RESEND_API_KEY (for Cloudflare) or SMTP_USER & SMTP_PASS (for Render).',
         diagnostics: {
           hasSmtpUser: diag.hasSmtpUser,
           hasSmtpPass: diag.hasSmtpPass,
@@ -420,7 +420,7 @@ async function login(req, res, next) {
  * GET /api/auth/email-status
  */
 function getEmailStatus(req, res) {
-  const status = emailService.getSmtpStatus();
+  const status = emailService.getEmailStatus();
   res.json({
     success: true,
     ...status
@@ -601,8 +601,8 @@ async function forgotPassword(req, res, next) {
     if (!emailService.isSmtpConfigured() && process.env.NODE_ENV !== 'test') {
       return res.status(400).json({
         success: false,
-        code: 'SMTP_NOT_CONFIGURED',
-        message: 'Gmail SMTP service is not configured. Please add SMTP_USER and SMTP_PASS in your Render dashboard under Environment.'
+        code: 'EMAIL_NOT_CONFIGURED',
+        message: 'Email service is not configured. Please add RESEND_API_KEY (for Cloudflare) or SMTP_USER & SMTP_PASS (for Render).'
       });
     }
 

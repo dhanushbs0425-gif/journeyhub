@@ -16,26 +16,42 @@ const { sanitizeEnvValue, getEnvDiagnostics } = require('../config/env');
 let etherealAccount = null;
 
 /**
- * Check whether Gmail SMTP environment variables are properly configured
+ * Check whether email delivery (Resend or Gmail SMTP) is properly configured
  */
 function isSmtpConfigured() {
   const diag = getEnvDiagnostics();
-  return diag.isConfigured;
+  if (process.env.NODE_ENV === 'test') {
+    return diag.isConfigured;
+  }
+  let hasResend = false;
+  try {
+    const resendService = require('./resendService');
+    hasResend = resendService.isResendConfigured();
+  } catch (_) {}
+  return diag.isConfigured || hasResend;
 }
 
 /**
- * Get safe SMTP status without leaking secret credentials
+ * Get safe Email/SMTP status without leaking secret credentials
  */
 function getSmtpStatus() {
   const diag = getEnvDiagnostics();
+  let resendStatus = { isConfigured: false };
+  try {
+    const resendService = require('./resendService');
+    resendStatus = resendService.getResendStatus();
+  } catch (_) {}
+
+  const isResend = resendStatus.isConfigured;
   return {
-    isConfigured: diag.isConfigured,
+    isConfigured: diag.isConfigured || isResend,
+    provider: isResend ? 'resend' : (diag.isConfigured ? 'smtp' : 'none'),
     smtpHost: diag.smtpHost,
     smtpPort: diag.smtpPort,
     smtpSecure: diag.smtpSecure,
-    smtpUserMasked: diag.smtpUserMasked,
-    hasSmtpUser: diag.hasSmtpUser,
-    hasSmtpPass: diag.hasSmtpPass,
+    smtpUserMasked: isResend ? resendStatus.sender : diag.smtpUserMasked,
+    hasSmtpUser: diag.hasSmtpUser || isResend,
+    hasSmtpPass: diag.hasSmtpPass || isResend,
     activeEnvFile: diag.activeEnvFile,
     backendEnvExists: diag.backendEnvExists,
     rootEnvExists: diag.rootEnvExists,
@@ -103,6 +119,17 @@ async function sendEmailOtp({ to, name, otp }) {
     const err = new Error(`Invalid email address format: "${to}". Please enter a valid email address.`);
     err.code = 'INVALID_EMAIL_ADDRESS';
     throw err;
+  }
+
+  // If not test mode and Resend is configured, prioritize Resend API
+  if (process.env.NODE_ENV !== 'test') {
+    try {
+      const resendService = require('./resendService');
+      if (resendService.isResendConfigured()) {
+        console.log(`[Email] Dispatching OTP to ${cleanTo} via Resend REST API...`);
+        return await resendService.sendEmailOtp({ to: cleanTo, name, otp });
+      }
+    } catch (_) {}
   }
 
   const { transporter, from, isDev } = await getTransporter();
@@ -178,6 +205,17 @@ async function sendEmailOtp({ to, name, otp }) {
  */
 async function sendPasswordResetOtp({ to, name, otp }) {
   const cleanTo = (to || '').toString().trim().toLowerCase();
+
+  // If not test mode and Resend is configured, prioritize Resend API
+  if (process.env.NODE_ENV !== 'test') {
+    try {
+      const resendService = require('./resendService');
+      if (resendService.isResendConfigured()) {
+        return await resendService.sendPasswordResetOtp({ to: cleanTo, name, otp });
+      }
+    } catch (_) {}
+  }
+
   const { transporter, from } = await getTransporter();
 
   const html = `
