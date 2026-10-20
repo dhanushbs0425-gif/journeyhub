@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "journey-hub",
+  "name": "journeyhub",
   "compatibility_date": "2026-10-19",
   "observability": {
     "enabled": true
