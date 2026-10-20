@@ -17,13 +17,8 @@ const BackendStatus = {
     this.probeBackend(true);
   },
 
-  createBanner() {
-    if (document.getElementById('backend-status-banner')) return;
-
-    const banner = document.createElement('div');
-    banner.id = 'backend-status-banner';
-    banner.className = 'backend-status-banner hidden';
-    banner.innerHTML = `
+  getWarmingHtml() {
+    return `
       <div class="backend-status-content">
         <div class="backend-status-pulse"></div>
         <div class="backend-status-info">
@@ -42,8 +37,33 @@ const BackendStatus = {
         </div>
       </div>
     `;
+  },
 
-    document.body.appendChild(banner);
+  getConnectedHtml() {
+    return `
+      <div class="backend-status-content">
+        <div class="backend-status-check"><i class="fas fa-check-circle"></i></div>
+        <div class="backend-status-info">
+          <div class="backend-status-title" style="color: #10b981;">
+            Cloud Engine Connected!
+          </div>
+          <div class="backend-status-desc">
+            Backend is active. All real-time travel services and database connections are operational.
+          </div>
+        </div>
+      </div>
+    `;
+  },
+
+  createBanner() {
+    let banner = document.getElementById('backend-status-banner');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'backend-status-banner';
+      document.body.appendChild(banner);
+    }
+    banner.className = 'backend-status-banner hidden';
+    banner.innerHTML = this.getWarmingHtml();
   },
 
   setupListeners() {
@@ -76,6 +96,7 @@ const BackendStatus = {
     const banner = document.getElementById('backend-status-banner');
     if (!banner) return;
 
+    banner.innerHTML = this.getWarmingHtml();
     banner.className = 'backend-status-banner visible warming';
     const secondsEl = document.getElementById('backend-status-seconds');
     if (secondsEl) secondsEl.textContent = '0';
@@ -130,10 +151,9 @@ const BackendStatus = {
   },
 
   setAwake() {
-    if (!this.isWakingUp && this.hasAnnouncedOnline) return;
-
     const wasWakingUp = this.isWakingUp;
     this.isWakingUp = false;
+    this.isOnline = true;
     this.hasAnnouncedOnline = true;
 
     if (this.timerInterval) {
@@ -145,33 +165,25 @@ const BackendStatus = {
       this.pingInterval = null;
     }
 
-    const banner = document.getElementById('backend-status-banner');
-    if (banner) {
-      banner.className = 'backend-status-banner visible connected';
-      banner.innerHTML = `
-        <div class="backend-status-content">
-          <div class="backend-status-check"><i class="fas fa-check-circle"></i></div>
-          <div class="backend-status-info">
-            <div class="backend-status-title" style="color: #10b981;">
-              Cloud Engine Connected!
-            </div>
-            <div class="backend-status-desc">
-              Backend is active. All real-time travel services and database connections are operational.
-            </div>
-          </div>
-        </div>
-      `;
-
-      setTimeout(() => {
-        banner.className = 'backend-status-banner hidden';
-        setTimeout(() => this.createBanner(), 600);
-      }, 3500);
-    }
-
+    // Always update navbar indicator quietly without flashing or triggering toasts
     this.updateNavbarIndicator('connected');
 
-    // Notify all active pages to reload their content if they were waiting
+    // ONLY show success notification & banner if we genuinely recovered from a confirmed waking-up or offline state
     if (wasWakingUp) {
+      const banner = document.getElementById('backend-status-banner');
+      if (banner) {
+        banner.className = 'backend-status-banner visible connected';
+        banner.innerHTML = this.getConnectedHtml();
+
+        setTimeout(() => {
+          banner.className = 'backend-status-banner hidden';
+          setTimeout(() => {
+            const b = document.getElementById('backend-status-banner');
+            if (b) b.innerHTML = this.getWarmingHtml();
+          }, 600);
+        }, 3500);
+      }
+
       window.dispatchEvent(new CustomEvent('backend_awake'));
       if (window.Toast) {
         window.Toast.show('Cloud server connected successfully!', 'success');
@@ -180,6 +192,7 @@ const BackendStatus = {
   },
 
   showOffline() {
+    this.isWakingUp = true;
     const banner = document.getElementById('backend-status-banner');
     if (!banner) return;
     banner.className = 'backend-status-banner visible offline';

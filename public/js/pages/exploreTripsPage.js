@@ -84,6 +84,9 @@ const ExploreTripsPage = {
   _awakeHandler: null,
 
   async mount() {
+    if (this._awakeHandler) {
+      window.removeEventListener('backend_awake', this._awakeHandler);
+    }
     this._awakeHandler = async () => {
       await this.fetchData(true);
       this.renderTrips();

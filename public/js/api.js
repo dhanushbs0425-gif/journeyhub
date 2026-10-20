@@ -69,12 +69,12 @@ const API = {
       controller.abort();
     }, timeout);
 
-    // If request takes longer than 3 seconds, inform BackendStatus that a cold start might be underway
+    // Only flag potential cold-start if a request is pending for over 10 seconds without response
     const slowTimer = setTimeout(() => {
-      if (window.BackendStatus) {
-        window.BackendStatus.triggerWakeup('Slow request response');
+      if (window.BackendStatus && !window.BackendStatus.isWakingUp) {
+        window.BackendStatus.triggerWakeup('Request pending over 10s (potential cold start)');
       }
-    }, 3000);
+    }, 10000);
 
     try {
       const response = await fetch(fullUrl, {

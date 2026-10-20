@@ -98,6 +98,9 @@ const DashboardPage = {
 
     this.attachSocket();
 
+    if (this._awakeHandler) {
+      window.removeEventListener('backend_awake', this._awakeHandler);
+    }
     this._awakeHandler = () => {
       DashboardPage.loadTripsList(true);
       DashboardPage.loadRequestsSummary(true);
