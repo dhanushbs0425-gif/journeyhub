@@ -47,9 +47,11 @@ const API = {
    */
   async request(endpoint, options = {}, retries = 2) {
     const token = this.getToken();
+    const requestId = options.requestId || ('jh_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7));
     const headers = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
+      'X-Request-Id': requestId,
       ...options.headers
     };
 
@@ -174,6 +176,7 @@ const API = {
         err.status = response.status;
         err.code = data.code;
         err.data = data;
+        err.requestId = data.requestId || response.headers.get('x-request-id') || requestId;
         throw err;
       }
 

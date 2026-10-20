@@ -8,6 +8,8 @@ const RegisterPage = {
   verifiedEmail: '',
   resendTimer: null,
   cooldownSeconds: 0,
+  isSendingOtp: false,
+  isVerifyingOtp: false,
 
   render() {
     return `
@@ -326,6 +328,7 @@ const RegisterPage = {
   },
 
   async handleSendOtp() {
+    if (this.isSendingOtp) return;
     RegisterPage.clearErrors();
     const nameInput = document.getElementById('reg-name');
     const emailInput = document.getElementById('reg-email');
@@ -341,6 +344,7 @@ const RegisterPage = {
       return;
     }
 
+    this.isSendingOtp = true;
     if (btnSend) {
       btnSend.disabled = true;
       if (labelSend) labelSend.textContent = 'Sending...';
@@ -402,10 +406,13 @@ const RegisterPage = {
       } else {
         RegisterPage.showAlert(errMsg || 'Failed to send verification code. Please check your email address and try again.', 'error');
       }
+    } finally {
+      this.isSendingOtp = false;
     }
   },
 
   async handleVerifyOtp() {
+    if (this.isVerifyingOtp) return;
     RegisterPage.clearErrors();
     const emailInput = document.getElementById('reg-email');
     const otpInput = document.getElementById('reg-otp');
@@ -420,6 +427,7 @@ const RegisterPage = {
       return;
     }
 
+    this.isVerifyingOtp = true;
     if (btnVerify) {
       btnVerify.disabled = true;
       btnVerify.innerHTML = `<span class="spinner" style="width: 14px; height: 14px; margin: 0; display: inline-block;"></span>`;
@@ -464,6 +472,8 @@ const RegisterPage = {
       }
       RegisterPage.showFieldError('reg-otp-err', err.message || 'Invalid or expired verification code.');
       RegisterPage.showAlert(err.message || 'OTP verification failed.', 'error');
+    } finally {
+      this.isVerifyingOtp = false;
     }
   },
 
