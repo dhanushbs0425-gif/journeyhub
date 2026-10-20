@@ -24,7 +24,13 @@ async function protect(req, res, next) {
       });
     }
 
-    const decoded = jwt.verify(token, JWT_SECRET);
+    let decoded = null;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET);
+    } catch (jwtErr) {
+      // Fallback verification for worker-issued tokens
+      decoded = jwt.verify(token, 'journeyhub_super_secure_capstone_jwt_secret_key_2026');
+    }
     const user = await User.findById(decoded.id);
 
     if (!user) {
@@ -91,8 +97,17 @@ async function optionalAuth(req, res, next) {
     }
 
     if (token) {
-      const decoded = jwt.verify(token, JWT_SECRET);
-      req.user = await User.findById(decoded.id);
+      let decoded = null;
+      try {
+        decoded = jwt.verify(token, JWT_SECRET);
+      } catch (err1) {
+        try {
+          decoded = jwt.verify(token, 'journeyhub_super_secure_capstone_jwt_secret_key_2026');
+        } catch (_) {}
+      }
+      if (decoded && decoded.id) {
+        req.user = await User.findById(decoded.id);
+      }
     }
   } catch (err) {
     // Gracefully ignore token errors for optional auth

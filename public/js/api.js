@@ -163,11 +163,25 @@ const API = {
       }
 
       if (response.status === 401) {
-        // Expired or invalid token
-        this.clearToken();
-        if (window.State) window.State.setUser(null);
-        window.location.hash = '#/login';
-        throw new Error(data.message || 'Session expired. Please log in.');
+        // Only trigger global session invalidation if /api/auth/me explicitly returned 401
+        // (meaning the session token itself is invalid/expired), and not for unrelated background requests
+        const isAuthMe = endpoint.includes('/api/auth/me');
+        if (isAuthMe) {
+          this.clearToken();
+          if (window.State) window.State.setUser(null);
+          // Only redirect to login if currently trying to access an authenticated-only view
+          const hash = window.location.hash || '#/';
+          const isPublicView = hash === '#/' || hash === '' || hash.startsWith('#/explore-trips') || hash.startsWith('#/mystery-trips') || hash.startsWith('#/destinations') || hash.startsWith('#/login') || hash.startsWith('#/register');
+          if (!isPublicView) {
+            window.location.hash = '#/login';
+          }
+        }
+        const errMessage = data.message || 'Authentication required or session expired.';
+        const err = new Error(errMessage);
+        err.status = 401;
+        err.code = data.code || 'UNAUTHORIZED';
+        err.data = data;
+        throw err;
       }
 
       if (!response.ok) {

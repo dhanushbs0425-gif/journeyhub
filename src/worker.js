@@ -55,11 +55,35 @@ async function isDbHealthy(env) {
 }
 
 function getJwtSecret(env) {
-  return env.JWT_SECRET || 'journeyhub_super_secure_capstone_jwt_secret_key_2026';
+  return env.JWT_SECRET || 'journeyhub_capstone_secure_secret_2026';
 }
 
 function generateToken(userId, env) {
   return jwt.sign({ id: userId.toString() }, getJwtSecret(env), { expiresIn: '7d' });
+}
+
+function extractToken(request) {
+  const authHeader = request.headers.get('Authorization') || request.headers.get('authorization');
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    return authHeader.slice(7).trim();
+  }
+  const url = new URL(request.url);
+  return url.searchParams.get('token');
+}
+
+function verifyToken(token, env) {
+  if (!token) return null;
+  const secrets = [
+    getJwtSecret(env),
+    'journeyhub_capstone_secure_secret_2026',
+    'journeyhub_super_secure_capstone_jwt_secret_key_2026'
+  ];
+  for (const secret of secrets) {
+    try {
+      return jwt.verify(token, secret);
+    } catch (_) {}
+  }
+  return null;
 }
 
 export default {
@@ -499,7 +523,157 @@ async function handleRequest(request, env, ctx, requestId) {
     }
   }
 
-  // 8. Proxy remaining /api/* routes safely to the live Render backend
+  // 8. Authenticated Current User Profile (Direct Edge Session Hydration)
+  if (url.pathname === '/api/auth/me' && request.method === 'GET') {
+    const token = extractToken(request);
+    if (!token) {
+      return jsonResponse({ success: false, message: 'Authentication required. Please log in.' }, 401, {}, requestId);
+    }
+
+    const decoded = verifyToken(token, env);
+    if (!decoded || !decoded.id) {
+      return jsonResponse({ success: false, message: 'Invalid or expired session token. Please log in again.' }, 401, {}, requestId);
+    }
+
+    const dbAvailable = Boolean(env.MONGODB_URI);
+    if (!dbAvailable) {
+      return proxyToBackend(request, env, url, null, requestId);
+    }
+
+    try {
+      return await useDb(env, async (db) => {
+        let user = null;
+        try {
+          user = await db.collection('users').findOne({ _id: new ObjectId(decoded.id) });
+        } catch (_) {
+          user = await db.collection('users').findOne({ _id: decoded.id });
+        }
+
+        if (!user) {
+          return jsonResponse({ success: false, message: 'The user belonging to this token no longer exists.' }, 401, {}, requestId);
+        }
+
+        return jsonResponse({
+          success: true,
+          user: {
+            _id: user._id.toString(),
+            name: user.name,
+            email: user.email,
+            phone: user.phone || user.profile?.phone || '',
+            role: user.role,
+            emailVerified: Boolean(user.emailVerified),
+            avatar: user.avatar || user.profile?.avatar,
+            profile: user.profile,
+            preferences: user.preferences
+          }
+        }, 200, {}, requestId);
+      });
+    } catch (err) {
+      console.error(`[Worker /api/auth/me Error ${requestId}]:`, err);
+      return jsonResponse({ success: false, message: err.message || 'Error fetching user profile' }, 500, {}, requestId);
+    }
+  }
+
+  // 9. Logout (Direct Edge Session Termination)
+  if (url.pathname === '/api/auth/logout' && request.method === 'POST') {
+    return jsonResponse({
+      success: true,
+      message: 'Logged out successfully.'
+    }, 200, {}, requestId);
+  }
+
+  // 10. Notifications Count & List (Direct Edge Notification Hydration)
+  if (url.pathname === '/api/notifications' && request.method === 'GET') {
+    const token = extractToken(request);
+    if (!token) {
+      return jsonResponse({ success: false, message: 'Authentication required. Please log in.' }, 401, {}, requestId);
+    }
+    const decoded = verifyToken(token, env);
+    if (!decoded || !decoded.id) {
+      return jsonResponse({ success: false, message: 'Invalid or expired session token.' }, 401, {}, requestId);
+    }
+
+    const dbAvailable = Boolean(env.MONGODB_URI);
+    if (!dbAvailable) {
+      return proxyToBackend(request, env, url, null, requestId);
+    }
+
+    try {
+      return await useDb(env, async (db) => {
+        let userObjId = null;
+        try { userObjId = new ObjectId(decoded.id); } catch (_) {}
+
+        const query = userObjId
+          ? { $or: [{ user: userObjId }, { user: decoded.id }, { userId: userObjId }, { userId: decoded.id }] }
+          : { $or: [{ user: decoded.id }, { userId: decoded.id }] };
+
+        const notifications = await db.collection('notifications')
+          .find(query)
+          .sort({ createdAt: -1 })
+          .limit(50)
+          .toArray();
+
+        const unreadCount = await db.collection('notifications').countDocuments({
+          ...query,
+          isRead: false
+        });
+
+        return jsonResponse({
+          success: true,
+          unreadCount,
+          notifications: notifications.map(n => ({ ...n, _id: n._id.toString() }))
+        }, 200, {}, requestId);
+      });
+    } catch (err) {
+      console.error(`[Worker Notifications Error ${requestId}]:`, err);
+      return jsonResponse({ success: true, unreadCount: 0, notifications: [] }, 200, {}, requestId);
+    }
+  }
+
+  // 11. Wishlist (Direct Edge Wishlist Hydration)
+  if (url.pathname === '/api/wishlist' && request.method === 'GET') {
+    const token = extractToken(request);
+    if (!token) {
+      return jsonResponse({ success: false, message: 'Authentication required. Please log in.' }, 401, {}, requestId);
+    }
+    const decoded = verifyToken(token, env);
+    if (!decoded || !decoded.id) {
+      return jsonResponse({ success: false, message: 'Invalid or expired session token.' }, 401, {}, requestId);
+    }
+
+    const dbAvailable = Boolean(env.MONGODB_URI);
+    if (!dbAvailable) {
+      return proxyToBackend(request, env, url, null, requestId);
+    }
+
+    try {
+      return await useDb(env, async (db) => {
+        let userObjId = null;
+        try { userObjId = new ObjectId(decoded.id); } catch (_) {}
+
+        const query = userObjId
+          ? { $or: [{ userId: userObjId }, { userId: decoded.id }, { user: userObjId }, { user: decoded.id }] }
+          : { $or: [{ userId: decoded.id }, { user: decoded.id }] };
+
+        const items = await db.collection('wishlists')
+          .find(query)
+          .sort({ addedAt: -1 })
+          .toArray();
+
+        return jsonResponse({
+          success: true,
+          count: items.length,
+          wishlistIds: items.map(i => (i.destinationId || '').toString()),
+          destinations: items.map(i => ({ ...i, _id: i._id.toString() }))
+        }, 200, {}, requestId);
+      });
+    } catch (err) {
+      console.error(`[Worker Wishlist Error ${requestId}]:`, err);
+      return jsonResponse({ success: true, count: 0, wishlistIds: [], destinations: [] }, 200, {}, requestId);
+    }
+  }
+
+  // 12. Proxy remaining /api/* routes safely to the live Render backend
   // Preserves 100% of all existing trips, bookings, itinerary, and organiser routes
   if (url.pathname.startsWith('/api')) {
     return proxyToBackend(request, env, url, null, requestId);

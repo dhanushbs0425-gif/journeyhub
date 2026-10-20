@@ -314,8 +314,9 @@ const RegisterPage = {
           window.Toast.show(res.message || 'Registration successful! Welcome to JourneyHub.', 'success');
         }
 
+        // Navigate directly to Home page and maintain active session
         setTimeout(() => {
-          window.location.hash = '#/profile-setup';
+          window.location.hash = '#/';
         }, 200);
       } catch (err) {
         if (submitBtn) {
