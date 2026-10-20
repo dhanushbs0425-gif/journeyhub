@@ -19,7 +19,7 @@ const RegisterPage = {
               <i class="fas fa-envelope-open-text"></i>
             </div>
             <h2 style="font-family: var(--font-display, inherit); font-size: 1.65rem; font-weight: 800; color: #0f172a; margin: 0;">Create Your Account</h2>
-            <p style="font-size: 0.9rem; color: #64748b; margin-top: 0.4rem;">Verify your email address via Gmail OTP to get started on JourneyHub</p>
+            <p style="font-size: 0.9rem; color: #64748b; margin-top: 0.4rem;">Verify your email address via Email OTP to get started on JourneyHub</p>
           </div>
 
           <div id="register-alert-box" style="display: none; padding: 0.85rem 1rem; border-radius: 8px; margin-bottom: 1.25rem; font-size: 0.875rem; line-height: 1.45;"></div>
@@ -48,7 +48,7 @@ const RegisterPage = {
                 <label class="form-label" for="reg-email" style="font-size: 0.85rem; font-weight: 600; color: #334155; margin: 0;">
                   <i class="fas fa-envelope" style="color: var(--primary-teal, #0d9488); margin-right: 0.35rem;"></i> Email Address <span style="color: #ef4444;">*</span>
                 </label>
-                <span style="font-size: 0.75rem; color: #64748b;">(Gmail OTP verification)</span>
+                <span style="font-size: 0.75rem; color: #64748b;">(Email OTP verification)</span>
               </div>
 
               <div style="display: flex; gap: 0.5rem; align-items: stretch;">
@@ -368,7 +368,7 @@ const RegisterPage = {
         setTimeout(() => otpInput.focus(), 150);
       }
 
-      RegisterPage.showAlert(res.message || `A 6-digit verification code has been dispatched to ${rawEmail}. Please check your Gmail inbox (and spam folder).`, 'success');
+      RegisterPage.showAlert(res.message || `A 6-digit verification code has been dispatched to ${rawEmail}. Please check your email inbox (and spam folder).`, 'success');
       if (window.Toast) {
         window.Toast.show(res.message || 'Verification code sent to your email!', 'success');
       }

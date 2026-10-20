@@ -1,11 +1,12 @@
 /**
  * JourneyHub Cloudflare Worker Entry Point
  * Unifies Cloudflare Edge Static Asset Delivery, Direct Serverless Resend OTP & MongoDB Atlas Verification,
- * and seamless fallback proxy to the Render backend for remaining APIs.
+ * Serverless Registration & Login, and seamless fallback proxy to the Render backend for remaining APIs.
  */
 
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 
 let cachedClient = null;
 
@@ -25,6 +26,14 @@ async function getDb(env) {
     cachedClient = null;
     return null;
   }
+}
+
+function getJwtSecret(env) {
+  return env.JWT_SECRET || 'journeyhub_super_secure_capstone_jwt_secret_key_2026';
+}
+
+function generateToken(userId, env) {
+  return jwt.sign({ id: userId.toString() }, getJwtSecret(env), { expiresIn: '7d' });
 }
 
 export default {
@@ -47,7 +56,7 @@ export default {
     // 2. Health & Diagnostics Check
     if (url.pathname === '/api/health') {
       const db = await getDb(env).catch(() => null);
-      return new Response(JSON.stringify({
+      return jsonResponse({
         status: 'online',
         platform: 'cloudflare-workers',
         appName: 'JourneyHub',
@@ -55,11 +64,6 @@ export default {
         resendConfigured: Boolean(env.RESEND_API_KEY),
         databaseConnected: Boolean(db),
         timestamp: new Date().toISOString()
-      }), {
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
-        }
       });
     }
 
@@ -67,17 +71,12 @@ export default {
     if (url.pathname === '/api/auth/email-status') {
       const apiKey = env.RESEND_API_KEY || '';
       const isResend = Boolean(apiKey && apiKey.startsWith('re_'));
-      return new Response(JSON.stringify({
+      return jsonResponse({
         success: true,
         provider: isResend ? 'resend' : 'none',
         isConfigured: isResend,
         sender: env.RESEND_FROM || 'JourneyHub <onboarding@resend.dev>',
         apiKeyMasked: isResend ? `${apiKey.slice(0, 6)}••••${apiKey.slice(-4)}` : '(none)'
-      }), {
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
-        }
       });
     }
 
@@ -202,7 +201,7 @@ export default {
 
           return jsonResponse({
             success: true,
-            message: `A 6-digit verification code has been dispatched to ${email} via Resend. Please check your Gmail inbox.`,
+            message: `A 6-digit verification code has been dispatched to ${email} via Resend. Please check your email inbox.`,
             email,
             cooldown: 60
           }, 200);
@@ -274,13 +273,186 @@ export default {
       }
     }
 
-    // 6. Proxy remaining /api/* routes safely to the live Render backend
-    // Preserves 100% of all existing endpoints, sessions, trips, bookings, and models
+    // 6. Complete Registration (Direct Serverless Registration)
+    if (url.pathname === '/api/auth/register' && request.method === 'POST') {
+      const db = await getDb(env).catch(() => null);
+      if (!db) {
+        return proxyToBackend(request, env, url);
+      }
+
+      try {
+        const body = await request.json().catch(() => ({}));
+        const name = (body.name || '').trim();
+        const email = (body.email || '').trim().toLowerCase();
+        const password = body.password || '';
+        const confirmPassword = body.confirmPassword;
+        const phone = (body.phone || '').trim();
+
+        if (name.length < 2) {
+          return jsonResponse({ success: false, message: 'Full name must be at least 2 characters.' }, 400);
+        }
+        if (!email.includes('@')) {
+          return jsonResponse({ success: false, message: 'Please provide a valid email address.' }, 400);
+        }
+        if (password.length < 6) {
+          return jsonResponse({ success: false, message: 'Password must be at least 6 characters long.' }, 400);
+        }
+        if (confirmPassword !== undefined && password !== confirmPassword) {
+          return jsonResponse({ success: false, message: 'Passwords do not match.' }, 400);
+        }
+
+        // Check if verified via OTP
+        const verifiedRecord = await db.collection('emailverifications').findOne({ email, isVerified: true });
+        if (!verifiedRecord) {
+          return jsonResponse({
+            success: false,
+            message: 'Please send and verify the OTP for your email address before completing registration.'
+          }, 400);
+        }
+
+        // Expiry check (30 minutes)
+        if (verifiedRecord.verifiedAt && Date.now() - new Date(verifiedRecord.verifiedAt).getTime() > 30 * 60 * 1000) {
+          return jsonResponse({
+            success: false,
+            message: 'Email verification has expired. Please verify your email address again.'
+          }, 400);
+        }
+
+        // Duplicate check
+        const existingEmailUser = await db.collection('users').findOne({ email });
+        if (existingEmailUser) {
+          return jsonResponse({
+            success: false,
+            message: 'An account with this email address already exists. Please log in.'
+          }, 400);
+        }
+
+        // Hash password
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(password, salt);
+
+        const newUser = {
+          name,
+          email,
+          phone,
+          password: hashedPassword,
+          role: 'user',
+          emailVerified: true,
+          phoneVerified: false,
+          verificationMethod: 'email',
+          status: 'active',
+          profile: {
+            avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80',
+            phone,
+            bio: 'Passionate globetrotter exploring new horizons.',
+            homeCity: '',
+            budgetPreference: 'Moderate',
+            preferredCategories: []
+          },
+          avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80',
+          preferences: {
+            currency: 'INR',
+            budgetAlertThreshold: 80,
+            emailNotifications: true,
+            theme: 'navy'
+          },
+          travelInterests: [],
+          emergencyContact: { name: '', relationship: '', phone: '' },
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+
+        const result = await db.collection('users').insertOne(newUser);
+        await db.collection('emailverifications').deleteOne({ _id: verifiedRecord._id });
+
+        const token = generateToken(result.insertedId, env);
+
+        return jsonResponse({
+          success: true,
+          message: 'Registration successful! Welcome to JourneyHub.',
+          token,
+          user: {
+            _id: result.insertedId.toString(),
+            name,
+            email,
+            role: 'user',
+            avatar: newUser.avatar,
+            profile: newUser.profile
+          }
+        }, 201);
+      } catch (err) {
+        return jsonResponse({ success: false, message: err.message || 'Registration failed' }, 500);
+      }
+    }
+
+    // 7. Login (Direct Serverless Authentication)
+    if (url.pathname === '/api/auth/login' && request.method === 'POST') {
+      const db = await getDb(env).catch(() => null);
+      if (!db) {
+        return proxyToBackend(request, env, url);
+      }
+
+      try {
+        const body = await request.json().catch(() => ({}));
+        const loginTarget = ((body.identifier || body.email || body.phone || '')).toString().trim().toLowerCase();
+        const password = body.password || '';
+
+        if (!loginTarget || !password) {
+          return jsonResponse({ success: false, message: 'Please enter your email and password.' }, 400);
+        }
+
+        let user = await db.collection('users').findOne({ email: loginTarget });
+        if (!user && !loginTarget.includes('@')) {
+          user = await db.collection('users').findOne({
+            role: 'organiser',
+            name: { $regex: new RegExp(`^${loginTarget}$`, 'i') }
+          });
+        }
+        if (!user) {
+          user = await db.collection('users').findOne({
+            $or: [{ phone: loginTarget }, { 'profile.phone': loginTarget }]
+          });
+        }
+
+        if (!user) {
+          return jsonResponse({ success: false, message: 'Invalid email or password.' }, 401);
+        }
+
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) {
+          return jsonResponse({ success: false, message: 'Invalid email or password.' }, 401);
+        }
+
+        const token = generateToken(user._id, env);
+
+        return jsonResponse({
+          success: true,
+          message: 'Login successful.',
+          token,
+          user: {
+            _id: user._id.toString(),
+            name: user.name,
+            email: user.email,
+            phone: user.phone || user.profile?.phone || '',
+            role: user.role,
+            emailVerified: user.emailVerified,
+            avatar: user.avatar || user.profile?.avatar,
+            profile: user.profile,
+            preferences: user.preferences
+          }
+        }, 200);
+      } catch (err) {
+        return jsonResponse({ success: false, message: err.message || 'Login error' }, 500);
+      }
+    }
+
+    // 8. Proxy remaining /api/* routes safely to the live Render backend
+    // Preserves 100% of all existing trips, bookings, itinerary, and organiser routes
     if (url.pathname.startsWith('/api')) {
       return proxyToBackend(request, env, url);
     }
 
-    // 7. Otherwise serve static assets from Cloudflare Edge
+    // 9. Otherwise serve static assets from Cloudflare Edge
     if (env.ASSETS) {
       return env.ASSETS.fetch(request);
     }

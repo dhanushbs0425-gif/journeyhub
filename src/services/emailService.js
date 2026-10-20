@@ -278,7 +278,9 @@ async function sendPasswordResetOtp({ to, name, otp }) {
 
 module.exports = {
   isSmtpConfigured,
+  isEmailConfigured: isSmtpConfigured,
   getSmtpStatus,
+  getEmailStatus: getSmtpStatus,
   sendEmailOtp,
   sendPasswordResetOtp
 };

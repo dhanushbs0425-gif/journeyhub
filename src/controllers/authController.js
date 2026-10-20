@@ -420,7 +420,9 @@ async function login(req, res, next) {
  * GET /api/auth/email-status
  */
 function getEmailStatus(req, res) {
-  const status = emailService.getEmailStatus();
+  const status = typeof emailService.getEmailStatus === 'function'
+    ? emailService.getEmailStatus()
+    : (typeof emailService.getSmtpStatus === 'function' ? emailService.getSmtpStatus() : {});
   res.json({
     success: true,
     ...status

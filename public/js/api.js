@@ -9,9 +9,12 @@ const API = {
   getBaseUrl() {
     if (window.JOURNEYHUB_API_URL) return window.JOURNEYHUB_API_URL.replace(/\/$/, '');
     const hostname = window.location.hostname;
-    // If frontend is deployed on an independent static host (Cloudflare Workers/Pages, GitHub Pages, Vercel, Netlify)
+    // Cloudflare Workers (workers.dev) hosts its own edge API gateway with 0ms cold-start
+    if (hostname.endsWith('workers.dev')) {
+      return '';
+    }
+    // If frontend is deployed on an external static host (GitHub Pages, Vercel, Netlify)
     if (
-      hostname.endsWith('workers.dev') ||
       hostname.endsWith('pages.dev') ||
       hostname.endsWith('github.io') ||
       hostname.endsWith('vercel.app') ||
