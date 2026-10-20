@@ -80,8 +80,8 @@ const RegisterPage = {
               </div>
             </div>
 
-            <!-- 3. OTP Verification Section (Revealed when OTP is requested) -->
-            <div id="section-otp-verify" style="display: none; margin-bottom: 1.25rem; background: #f8fafc; border: 1.5px dashed var(--primary-teal, #0d9488); border-radius: 12px; padding: 1.1rem;">
+            <!-- 3. OTP Verification Section (Always visible so users immediately see where to enter code) -->
+            <div id="section-otp-verify" style="display: block; margin-bottom: 1.25rem; background: #f8fafc; border: 1.5px dashed var(--primary-teal, #0d9488); border-radius: 12px; padding: 1.1rem; transition: all 0.2s ease;">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
                 <label style="font-size: 0.85rem; font-weight: 700; color: #0f172a; margin: 0;">
                   <i class="fas fa-shield-alt" style="color: var(--primary-teal, #0d9488);"></i> Enter 6-Digit Email Verification Code:
@@ -95,9 +95,9 @@ const RegisterPage = {
                   id="reg-otp"
                   inputmode="numeric"
                   maxlength="6"
-                  placeholder="&bull; &bull; &bull; &bull; &bull; &bull;"
+                  placeholder="Enter 6-digit OTP"
                   autocomplete="one-time-code"
-                  style="flex: 1; padding: 0.7rem 1rem; border-radius: 8px; border: 2px solid #cbd5e1; font-size: 1.35rem; font-weight: 800; text-align: center; letter-spacing: 6px; outline: none;"
+                  style="flex: 1; padding: 0.7rem 1rem; border-radius: 8px; border: 2px solid #cbd5e1; font-size: 1.25rem; font-weight: 800; text-align: center; letter-spacing: 4px; outline: none; transition: border-color 0.2s, box-shadow 0.2s;"
                 />
                 <button
                   type="button"
@@ -352,15 +352,20 @@ const RegisterPage = {
         name
       });
 
-      // Show OTP input section
+      // Highlight and focus the OTP input box
       const otpSection = document.getElementById('section-otp-verify');
+      const otpInput = document.getElementById('reg-otp');
       if (otpSection) {
         otpSection.style.display = 'block';
-        const otpInput = document.getElementById('reg-otp');
-        if (otpInput) {
-          otpInput.value = '';
-          otpInput.focus();
-        }
+        otpSection.style.borderColor = '#0d9488';
+        otpSection.style.backgroundColor = '#f0fdfa';
+      }
+      if (otpInput) {
+        otpInput.value = '';
+        otpInput.style.borderColor = '#0d9488';
+        otpInput.style.boxShadow = '0 0 0 4px rgba(13, 148, 136, 0.25)';
+        otpInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setTimeout(() => otpInput.focus(), 150);
       }
 
       RegisterPage.showAlert(res.message || `A 6-digit verification code has been dispatched to ${rawEmail}. Please check your Gmail inbox (and spam folder).`, 'success');
