@@ -9,6 +9,9 @@
   "observability": {
     "enabled": true
   },
+  "vars": {
+    "BACKEND_API_URL": "https://journeyhub-m5lq.onrender.com"
+  },
   "assets": {
     "directory": "public",
     "not_found_handling": "single-page-application"
