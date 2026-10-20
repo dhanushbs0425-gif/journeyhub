@@ -139,7 +139,25 @@ const API = {
             return this.request(endpoint, options, retries - 1);
           }
         }
-        data = { message: text.slice(0, 200) || `HTTP error ${response.status}` };
+
+        // Cleanly parse HTML error pages (e.g. Cloudflare Error 1101, 502 Bad Gateway)
+        let extractedMessage = '';
+        if (text.includes('<html') || text.includes('<!DOCTYPE') || text.includes('<body')) {
+          const titleMatch = text.match(/<title>([^<]+)<\/title>/i);
+          const headingMatch = text.match(/<h[12][^>]*>([^<]+)<\/h[12]>/i);
+          if (titleMatch && titleMatch[1]) {
+            extractedMessage = titleMatch[1].replace(/\|.*$/, '').trim();
+          } else if (headingMatch && headingMatch[1]) {
+            extractedMessage = headingMatch[1].trim();
+          }
+        } else {
+          extractedMessage = text.slice(0, 250).trim();
+        }
+
+        data = { 
+          message: extractedMessage || `Server responded with status ${response.status}`,
+          status: response.status
+        };
       }
 
       if (response.status === 401) {
@@ -151,7 +169,8 @@ const API = {
       }
 
       if (!response.ok) {
-        const err = new Error(data.message || `An error occurred (${response.status}) while processing your request.`);
+        const errMessage = data.message || `An error occurred (${response.status}) while processing your request.`;
+        const err = new Error(errMessage);
         err.status = response.status;
         err.code = data.code;
         err.data = data;

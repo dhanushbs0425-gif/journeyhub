@@ -381,23 +381,26 @@ const RegisterPage = {
       }
 
       // If cloud server is in cold-start spin-up
+      const errMsg = err.message || '';
+      const isResendSandboxNotice = 
+        errMsg.includes('testing email address') || 
+        errMsg.includes('only send testing emails') ||
+        errMsg.includes('verify your domain') ||
+        errMsg.includes('Invalid `to` field');
+
       if (err.isColdStart) {
         RegisterPage.showAlert(`
-          <div style="font-weight: 700; margin-bottom: 0.4rem;"><i class="fas fa-spinner fa-spin"></i> Cloud Server Spinning Up:</div>
-          <div>The cloud backend was asleep and is finishing initialization (~15s remaining). Please wait a few moments and click <strong>Send OTP</strong> again.</div>
+          <div style="font-weight: 700; margin-bottom: 0.4rem;"><i class="fas fa-spinner fa-spin"></i> Cloud Server Initializing:</div>
+          <div>The cloud backend is finishing initialization (~10s remaining). Please wait a few moments and click <strong>Send OTP</strong> again.</div>
         `, 'warning');
-      } else if (err.code === 'SMTP_NOT_CONFIGURED') {
+      } else if (isResendSandboxNotice) {
         RegisterPage.showAlert(`
-          <div style="font-weight: 700; margin-bottom: 0.4rem;"><i class="fas fa-envelope"></i> Gmail SMTP Setup Required on Server:</div>
-          <div>${err.message}</div>
-          <div style="margin-top: 0.5rem; font-size: 0.8rem; background: rgba(0,0,0,0.04); padding: 0.5rem; border-radius: 6px;">
-            <strong>Render Setup:</strong> In your Render dashboard, click <strong>Environment</strong> and add:<br/>
-            <code>SMTP_USER = journeyhub8@gmail.com</code><br/>
-            <code>SMTP_PASS = xvcixmlzaqaudmpe</code>
-          </div>
-        `, 'error');
+          <div style="font-weight: 700; margin-bottom: 0.4rem;"><i class="fas fa-info-circle"></i> Resend Testing Mode:</div>
+          <div>In sandbox testing mode, verification codes can only be delivered to the verified developer email address (<code>dhanushbs0425@gmail.com</code>).</div>
+          <div style="margin-top: 0.4rem; font-size: 0.8rem; color: #64748b;">To enable delivery to any email domain in production, verify your custom domain in the Resend dashboard.</div>
+        `, 'warning');
       } else {
-        RegisterPage.showAlert(err.message || 'Failed to send Email OTP. Please check your email address.', 'error');
+        RegisterPage.showAlert(errMsg || 'Failed to send verification code. Please check your email address and try again.', 'error');
       }
     }
   },
