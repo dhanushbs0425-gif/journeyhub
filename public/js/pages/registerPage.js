@@ -375,15 +375,20 @@ const RegisterPage = {
         if (labelSend) labelSend.textContent = 'Send OTP';
       }
 
-      // If Gmail SMTP credentials are missing, render beginner-friendly setup help
-      if (err.code === 'SMTP_NOT_CONFIGURED' || err.status === 503) {
+      // If cloud server is in cold-start spin-up
+      if (err.isColdStart) {
         RegisterPage.showAlert(`
-          <div style="font-weight: 700; margin-bottom: 0.4rem;"><i class="fas fa-exclamation-triangle"></i> Gmail SMTP Setup Required:</div>
+          <div style="font-weight: 700; margin-bottom: 0.4rem;"><i class="fas fa-spinner fa-spin"></i> Cloud Server Spinning Up:</div>
+          <div>The cloud backend was asleep and is finishing initialization (~15s remaining). Please wait a few moments and click <strong>Send OTP</strong> again.</div>
+        `, 'warning');
+      } else if (err.code === 'SMTP_NOT_CONFIGURED') {
+        RegisterPage.showAlert(`
+          <div style="font-weight: 700; margin-bottom: 0.4rem;"><i class="fas fa-envelope"></i> Gmail SMTP Setup Required on Server:</div>
           <div>${err.message}</div>
           <div style="margin-top: 0.5rem; font-size: 0.8rem; background: rgba(0,0,0,0.04); padding: 0.5rem; border-radius: 6px;">
-            <strong>Quick Setup:</strong> Open <code>backend/.env</code> and enter your 16-character Google App Password:<br/>
-            <code>SMTP_USER=journeyhub8@gmail.com</code><br/>
-            <code>SMTP_PASS=your_16_character_app_password</code>
+            <strong>Render Setup:</strong> In your Render dashboard, click <strong>Environment</strong> and add:<br/>
+            <code>SMTP_USER = journeyhub8@gmail.com</code><br/>
+            <code>SMTP_PASS = xvcixmlzaqaudmpe</code>
           </div>
         `, 'error');
       } else {

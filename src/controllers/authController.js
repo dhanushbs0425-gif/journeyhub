@@ -42,10 +42,10 @@ async function sendEmailOtp(req, res, next) {
     // Check if Gmail SMTP provider is configured
     if (!emailService.isSmtpConfigured() && process.env.NODE_ENV !== 'test') {
       const diag = require('../config/env').getEnvDiagnostics();
-      return res.status(503).json({
+      return res.status(400).json({
         success: false,
         code: 'SMTP_NOT_CONFIGURED',
-        message: 'Gmail SMTP is not configured. To receive real verification codes, please configure SMTP_USER and SMTP_PASS (your 16-character Google App Password) in your backend .env file.',
+        message: 'Gmail SMTP credentials are not configured in Render. Please add SMTP_USER and SMTP_PASS in the Render dashboard under Environment.',
         diagnostics: {
           hasSmtpUser: diag.hasSmtpUser,
           hasSmtpPass: diag.hasSmtpPass,
@@ -599,10 +599,10 @@ async function forgotPassword(req, res, next) {
     }
 
     if (!emailService.isSmtpConfigured() && process.env.NODE_ENV !== 'test') {
-      return res.status(503).json({
+      return res.status(400).json({
         success: false,
         code: 'SMTP_NOT_CONFIGURED',
-        message: 'Gmail SMTP service is not configured. Please configure SMTP_USER and SMTP_PASS in your .env file.'
+        message: 'Gmail SMTP service is not configured. Please add SMTP_USER and SMTP_PASS in your Render dashboard under Environment.'
       });
     }
 

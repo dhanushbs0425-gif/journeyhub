@@ -92,8 +92,12 @@ const API = {
         return await response.text();
       }
 
+      const contentType = response.headers.get('content-type') || '';
+      const isJson = contentType.includes('application/json');
+
       // Check for Render/Cloud Gateway sleeping codes (502 Bad Gateway, 503, 504 Gateway Timeout)
-      if ([502, 503, 504].includes(response.status)) {
+      // Only treat as cold-start if the response is NOT a structured application JSON response
+      if ([502, 503, 504].includes(response.status) && !isJson) {
         if (window.BackendStatus) {
           window.BackendStatus.triggerWakeup(`HTTP ${response.status} from cloud gateway`);
         }
@@ -113,8 +117,7 @@ const API = {
 
       // Parse JSON safely (Render cold-start error pages might return HTML)
       let data = {};
-      const contentType = response.headers.get('content-type') || '';
-      if (contentType.includes('application/json')) {
+      if (isJson) {
         try {
           data = await response.json();
         } catch (jsonErr) {
