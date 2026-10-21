@@ -13,6 +13,7 @@ const runGmailEmailOtpTests = require('./gmailEmailOtp.test');
 const runJoinRequestVisibilityAndSyncTests = require('./joinRequestVisibilityAndSync.test');
 const runPublishedTripsVisibilityTests = require('./publishedTripsVisibility.test');
 const runMyTripsAndDetailsNavTests = require('./myTripsAndDetailsNav.test');
+const runBugs123Tests = require('./bugs123EndToEnd.test');
 
 console.log('====================================================');
 console.log('   JOURNEYHUB MCA CAPSTONE - COMPLETE TEST SUITE    ');
@@ -31,6 +32,7 @@ console.log('====================================================\n');
     await runJoinRequestVisibilityAndSyncTests();
     await runPublishedTripsVisibilityTests();
     await runMyTripsAndDetailsNavTests();
+    await runBugs123Tests();
     console.log('====================================================');
     console.log('       ALL UNIT & INTEGRATION TESTS PASSED (100%)   ');
     console.log('====================================================');

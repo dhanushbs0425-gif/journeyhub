@@ -27,7 +27,10 @@ const OrganiserRequestsPage = {
               Shared expedition review portal. Approvals and rejections synchronize live across all three organisers.
             </p>
           </div>
-          <div style="display: flex; gap: 0.5rem;">
+          <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <button class="btn btn-outline btn-md" id="btn-clear-all-requests" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.4);" onclick="OrganiserRequestsPage.confirmClearAll()">
+              <i class="fas fa-trash-alt"></i> Clear All
+            </button>
             <a href="#/organiser-trips" class="btn btn-outline btn-md">
               <i class="fas fa-tasks"></i> Manage Trips
             </a>
@@ -296,6 +299,9 @@ const OrganiserRequestsPage = {
                   ${req.rejectionReason ? `<div style="font-size: 0.72rem; color: #ef4444; margin-top: 0.3rem;">Reason: ${req.rejectionReason}</div>` : ''}
                 </div>
               `}
+              <button class="btn btn-outline btn-sm" id="btn-delete-${req._id}" style="color: #64748b; border-color: #cbd5e1; font-size: 0.75rem; margin-top: 0.25rem;" onclick="OrganiserRequestsPage.confirmDelete('${req._id}')" title="Delete this join request">
+                <i class="fas fa-trash-alt"></i> Delete
+              </button>
             </div>
           </div>
         </div>
@@ -367,6 +373,65 @@ const OrganiserRequestsPage = {
       }
       window.Toast?.show('Could not decline request: ' + err.message, 'error');
     }
+  },
+
+  confirmDelete(requestId) {
+    window.Modal.confirm({
+      title: 'Delete Join Request?',
+      message: 'Are you sure you want to permanently delete this join request record? This action cannot be undone.',
+      confirmText: 'Delete Request',
+      confirmClass: 'btn-danger',
+      onConfirm: async () => {
+        const btn = document.getElementById(`btn-delete-${requestId}`);
+        if (btn) {
+          btn.disabled = true;
+          btn.innerHTML = `<span class="spinner" style="width: 12px; height: 12px; display: inline-block;"></span>`;
+        }
+        try {
+          const res = await window.API.delete(`/api/join-requests/${requestId}`);
+          window.Toast?.show(res.message || 'Join request deleted successfully.', 'info');
+          await this.fetchData(true);
+          this.updateCounters();
+          this.renderList();
+        } catch (err) {
+          if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<i class="fas fa-trash-alt"></i> Delete`;
+          }
+          window.Toast?.show('Could not delete request: ' + err.message, 'error');
+        }
+      }
+    });
+  },
+
+  confirmClearAll() {
+    window.Modal.confirm({
+      title: 'Clear All Join Requests?',
+      message: 'Are you sure you want to clear all join requests for your expeditions? Only requests for expeditions you organise will be cleared.',
+      confirmText: 'Clear All Requests',
+      confirmClass: 'btn-danger',
+      onConfirm: async () => {
+        const btn = document.getElementById('btn-clear-all-requests');
+        if (btn) {
+          btn.disabled = true;
+          btn.innerHTML = `<span class="spinner" style="width: 12px; height: 12px; display: inline-block;"></span> Clearing...`;
+        }
+        try {
+          const res = await window.API.delete('/api/join-requests/clear-all');
+          window.Toast?.show(res.message || 'All join requests cleared for your expeditions.', 'success');
+          await this.fetchData(true);
+          this.updateCounters();
+          this.renderList();
+        } catch (err) {
+          window.Toast?.show('Could not clear requests: ' + err.message, 'error');
+        } finally {
+          if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<i class="fas fa-trash-alt"></i> Clear All`;
+          }
+        }
+      }
+    });
   }
 };
 

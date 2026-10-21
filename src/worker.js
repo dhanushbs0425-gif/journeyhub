@@ -86,6 +86,17 @@ function verifyToken(token, env) {
   return null;
 }
 
+function safeObjectId(id) {
+  if (!id) return null;
+  if (id instanceof ObjectId) return id;
+  try {
+    if (typeof id === 'string' && id.length === 24 && /^[0-9a-fA-F]{24}$/.test(id)) {
+      return new ObjectId(id);
+    }
+  } catch (_) {}
+  return id;
+}
+
 export default {
   async fetch(request, env, ctx) {
     const requestId = request.headers.get('X-Request-Id') || ('jh_' + crypto.randomUUID().slice(0, 8));
@@ -670,6 +681,1122 @@ async function handleRequest(request, env, ctx, requestId) {
     } catch (err) {
       console.error(`[Worker Wishlist Error ${requestId}]:`, err);
       return jsonResponse({ success: true, count: 0, wishlistIds: [], destinations: [] }, 200, {}, requestId);
+    }
+  }
+
+  // 12. Join Requests - Organiser Clear All (Direct Edge Execution)
+  if (url.pathname === '/api/join-requests/clear-all' && request.method === 'DELETE') {
+    const token = extractToken(request);
+    if (!token) {
+      return jsonResponse({ success: false, message: 'Authentication required. Please log in.' }, 401, {}, requestId);
+    }
+    const decoded = verifyToken(token, env);
+    if (!decoded || !decoded.id) {
+      return jsonResponse({ success: false, message: 'Invalid or expired session token.' }, 401, {}, requestId);
+    }
+
+    const dbAvailable = Boolean(env.MONGODB_URI);
+    if (!dbAvailable) {
+      return proxyToBackend(request, env, url, null, requestId);
+    }
+
+    try {
+      return await useDb(env, async (db) => {
+        const userObjId = safeObjectId(decoded.id);
+        const user = await db.collection('users').findOne({ _id: userObjId });
+        if (!user || !['organiser', 'organizer', 'admin'].includes((user.role || '').toLowerCase())) {
+          return jsonResponse({ success: false, message: 'Access denied: Only organisers can clear join requests.' }, 403, {}, requestId);
+        }
+
+        const myTrips = await db.collection('trips').find({
+          $or: [{ organiserId: userObjId }, { createdBy: userObjId }, { organiserId: decoded.id }, { createdBy: decoded.id }]
+        }).project({ _id: 1 }).toArray();
+        const myTripIds = myTrips.map(t => t._id);
+
+        const myMysteryTrips = await db.collection('mysterytrips').find({
+          $or: [{ organiserId: userObjId }, { organiserId: decoded.id }]
+        }).project({ _id: 1 }).toArray();
+        const myMysteryTripIds = myMysteryTrips.map(t => t._id);
+
+        const filter = {
+          $or: [
+            { organiser: userObjId },
+            { organiser: decoded.id },
+            { trip: { $in: myTripIds } },
+            { mysteryTrip: { $in: myMysteryTripIds } }
+          ]
+        };
+
+        const result = await db.collection('joinrequests').deleteMany(filter);
+        return jsonResponse({
+          success: true,
+          message: `Successfully cleared ${result.deletedCount || 0} join requests for your expeditions.`,
+          clearedCount: result.deletedCount || 0
+        }, 200, {}, requestId);
+      });
+    } catch (err) {
+      console.error(`[Worker Clear All Error ${requestId}]:`, err);
+      return jsonResponse({ success: false, message: err.message || 'Error clearing requests' }, 500, {}, requestId);
+    }
+  }
+
+  // 13. Join Requests - Organiser Review Portal List (Direct Edge Aggregation)
+  if ((url.pathname === '/api/join-requests/organiser-requests' || url.pathname === '/api/join-requests/organiser/all') && request.method === 'GET') {
+    const token = extractToken(request);
+    if (!token) {
+      return jsonResponse({ success: false, message: 'Authentication required. Please log in.' }, 401, {}, requestId);
+    }
+    const decoded = verifyToken(token, env);
+    if (!decoded || !decoded.id) {
+      return jsonResponse({ success: false, message: 'Invalid or expired session token.' }, 401, {}, requestId);
+    }
+
+    const dbAvailable = Boolean(env.MONGODB_URI);
+    if (!dbAvailable) {
+      return proxyToBackend(request, env, url, null, requestId);
+    }
+
+    try {
+      return await useDb(env, async (db) => {
+        const userObjId = safeObjectId(decoded.id);
+        const user = await db.collection('users').findOne({ _id: userObjId });
+        if (!user || !['organiser', 'organizer', 'admin'].includes((user.role || '').toLowerCase())) {
+          return jsonResponse({ success: false, message: 'Access denied: Only organisers can view incoming join requests.' }, 403, {}, requestId);
+        }
+
+        const rawRequests = await db.collection('joinrequests')
+          .find({ status: { $ne: 'cancelled' } })
+          .sort({ requestedAt: -1, createdAt: -1 })
+          .toArray();
+
+        const userIds = [...new Set(rawRequests.map(r => r.user).filter(Boolean).map(id => id.toString()))];
+        const tripIds = [...new Set(rawRequests.map(r => r.trip).filter(Boolean).map(id => id.toString()))];
+        const mysteryTripIds = [...new Set(rawRequests.map(r => r.mysteryTrip).filter(Boolean).map(id => id.toString()))];
+        const revIds = [...new Set(rawRequests.map(r => r.reviewedBy).filter(Boolean).map(id => id.toString()))];
+        const orgIds = [...new Set(rawRequests.map(r => r.organiser).filter(Boolean).map(id => id.toString()))];
+
+        const [usersList, tripsList, mysteryList, revList, orgList] = await Promise.all([
+          db.collection('users').find({ _id: { $in: userIds.map(safeObjectId) } }).toArray(),
+          db.collection('trips').find({ _id: { $in: tripIds.map(safeObjectId) } }).toArray(),
+          db.collection('mysterytrips').find({ _id: { $in: mysteryTripIds.map(safeObjectId) } }).toArray(),
+          db.collection('users').find({ _id: { $in: revIds.map(safeObjectId) } }).toArray(),
+          db.collection('users').find({ _id: { $in: orgIds.map(safeObjectId) } }).toArray()
+        ]);
+
+        const userMap = new Map(usersList.map(u => [u._id.toString(), u]));
+        const tripMap = new Map(tripsList.map(t => [t._id.toString(), t]));
+        const mysteryMap = new Map(mysteryList.map(m => [m._id.toString(), m]));
+        const revMap = new Map(revList.map(r => [r._id.toString(), r]));
+        const orgMap = new Map(orgList.map(o => [o._id.toString(), o]));
+
+        const requests = rawRequests.map(r => {
+          const traveler = userMap.get((r.user || '').toString());
+          const trip = tripMap.get((r.trip || '').toString());
+          const mysteryTrip = mysteryMap.get((r.mysteryTrip || '').toString());
+          const reviewer = revMap.get((r.reviewedBy || '').toString());
+          const org = orgMap.get((r.organiser || '').toString());
+
+          return {
+            _id: r._id.toString(),
+            tripType: r.tripType || (mysteryTrip ? 'mystery' : 'normal'),
+            trip: trip ? {
+              _id: trip._id.toString(),
+              title: trip.title,
+              destination: trip.destination,
+              startDate: trip.startDate,
+              endDate: trip.endDate,
+              price: trip.price || trip.estimatedBudget,
+              currency: trip.currency || 'INR',
+              availableSeats: trip.availableSeats !== undefined ? trip.availableSeats : (trip.capacity || 10),
+              capacity: trip.capacity || 10,
+              coverImage: trip.coverImage,
+              status: trip.status || 'upcoming',
+              organiserId: trip.organiserId ? trip.organiserId.toString() : ''
+            } : (r.trip ? { _id: r.trip.toString() } : undefined),
+            mysteryTrip: mysteryTrip ? {
+              _id: mysteryTrip._id.toString(),
+              title: mysteryTrip.title,
+              destinationHint: mysteryTrip.destinationHint,
+              destinationSecret: mysteryTrip.destinationSecret,
+              departureDate: mysteryTrip.departureDate,
+              returnDate: mysteryTrip.returnDate,
+              price: mysteryTrip.price,
+              currency: mysteryTrip.currency || 'INR',
+              availableSeats: mysteryTrip.availableSeats !== undefined ? mysteryTrip.availableSeats : (mysteryTrip.maxParticipants || 10),
+              maxParticipants: mysteryTrip.maxParticipants || 10,
+              coverImage: mysteryTrip.coverImage,
+              isRevealed: Boolean(mysteryTrip.isRevealed),
+              status: mysteryTrip.status || 'published'
+            } : undefined,
+            user: traveler ? {
+              _id: traveler._id.toString(),
+              name: traveler.name,
+              email: traveler.email,
+              avatar: traveler.avatar || traveler.profile?.avatar,
+              phone: traveler.phone || traveler.profile?.phone,
+              bio: traveler.profile?.bio
+            } : { _id: (r.user || '').toString(), name: 'Traveler' },
+            organiser: org ? { _id: org._id.toString(), name: org.name, email: org.email, avatar: org.avatar } : (r.organiser ? { _id: r.organiser.toString() } : undefined),
+            reviewedBy: reviewer ? { _id: reviewer._id.toString(), name: reviewer.name, email: reviewer.email } : undefined,
+            seatsRequested: r.seatsRequested || 1,
+            status: r.status || 'pending',
+            message: r.message || '',
+            rejectionReason: r.rejectionReason || '',
+            requestedAt: r.requestedAt || r.createdAt,
+            reviewedAt: r.reviewedAt
+          };
+        });
+
+        return jsonResponse({
+          success: true,
+          count: requests.length,
+          pendingCount: requests.filter(r => r.status === 'pending').length,
+          approvedCount: requests.filter(r => r.status === 'approved').length,
+          rejectedCount: requests.filter(r => r.status === 'rejected').length,
+          requests
+        }, 200, {}, requestId);
+      });
+    } catch (err) {
+      console.error(`[Worker Organiser Requests Error ${requestId}]:`, err);
+      return jsonResponse({ success: false, message: err.message || 'Error fetching organiser requests' }, 500, {}, requestId);
+    }
+  }
+
+  // 14. Join Requests - Traveler My Requests List (Direct Edge Aggregation)
+  if ((url.pathname === '/api/join-requests/my-requests' || url.pathname === '/api/join-requests') && request.method === 'GET') {
+    const token = extractToken(request);
+    if (!token) {
+      return jsonResponse({ success: false, message: 'Authentication required. Please log in.' }, 401, {}, requestId);
+    }
+    const decoded = verifyToken(token, env);
+    if (!decoded || !decoded.id) {
+      return jsonResponse({ success: false, message: 'Invalid or expired session token.' }, 401, {}, requestId);
+    }
+
+    const dbAvailable = Boolean(env.MONGODB_URI);
+    if (!dbAvailable) {
+      return proxyToBackend(request, env, url, null, requestId);
+    }
+
+    try {
+      return await useDb(env, async (db) => {
+        const userObjId = safeObjectId(decoded.id);
+        const rawRequests = await db.collection('joinrequests')
+          .find({
+            $or: [{ user: userObjId }, { user: decoded.id }],
+            status: { $ne: 'cancelled' }
+          })
+          .sort({ requestedAt: -1, createdAt: -1 })
+          .toArray();
+
+        const tripIds = [...new Set(rawRequests.map(r => r.trip).filter(Boolean).map(id => id.toString()))];
+        const mysteryTripIds = [...new Set(rawRequests.map(r => r.mysteryTrip).filter(Boolean).map(id => id.toString()))];
+        const orgIds = [...new Set(rawRequests.map(r => r.organiser).filter(Boolean).map(id => id.toString()))];
+
+        const [tripsList, mysteryList, orgList] = await Promise.all([
+          db.collection('trips').find({ _id: { $in: tripIds.map(safeObjectId) } }).toArray(),
+          db.collection('mysterytrips').find({ _id: { $in: mysteryTripIds.map(safeObjectId) } }).toArray(),
+          db.collection('users').find({ _id: { $in: orgIds.map(safeObjectId) } }).toArray()
+        ]);
+
+        const tripMap = new Map(tripsList.map(t => [t._id.toString(), t]));
+        const mysteryMap = new Map(mysteryList.map(m => [m._id.toString(), m]));
+        const orgMap = new Map(orgList.map(o => [o._id.toString(), o]));
+
+        const requests = rawRequests.map(r => {
+          const trip = tripMap.get((r.trip || '').toString());
+          const mysteryTrip = mysteryMap.get((r.mysteryTrip || '').toString());
+          const org = orgMap.get((r.organiser || '').toString());
+
+          return {
+            _id: r._id.toString(),
+            tripType: r.tripType || (mysteryTrip ? 'mystery' : 'normal'),
+            trip: trip ? {
+              _id: trip._id.toString(),
+              title: trip.title,
+              destination: trip.destination,
+              startDate: trip.startDate,
+              endDate: trip.endDate,
+              price: trip.price || trip.estimatedBudget,
+              currency: trip.currency || 'INR',
+              availableSeats: trip.availableSeats !== undefined ? trip.availableSeats : (trip.capacity || 10),
+              capacity: trip.capacity || 10,
+              coverImage: trip.coverImage,
+              status: trip.status || 'upcoming'
+            } : undefined,
+            mysteryTrip: mysteryTrip ? {
+              _id: mysteryTrip._id.toString(),
+              title: mysteryTrip.title,
+              destinationHint: mysteryTrip.destinationHint,
+              destinationSecret: mysteryTrip.isRevealed ? mysteryTrip.destinationSecret : null,
+              departureDate: mysteryTrip.departureDate,
+              returnDate: mysteryTrip.returnDate,
+              price: mysteryTrip.price,
+              currency: mysteryTrip.currency || 'INR',
+              availableSeats: mysteryTrip.availableSeats,
+              maxParticipants: mysteryTrip.maxParticipants,
+              coverImage: mysteryTrip.coverImage,
+              status: mysteryTrip.status,
+              isRevealed: Boolean(mysteryTrip.isRevealed)
+            } : undefined,
+            organiser: org ? { _id: org._id.toString(), name: org.name, email: org.email, avatar: org.avatar } : undefined,
+            seatsRequested: r.seatsRequested || 1,
+            status: r.status || 'pending',
+            message: r.message || '',
+            rejectionReason: r.rejectionReason || '',
+            requestedAt: r.requestedAt || r.createdAt,
+            reviewedAt: r.reviewedAt
+          };
+        });
+
+        return jsonResponse({
+          success: true,
+          count: requests.length,
+          requests
+        }, 200, {}, requestId);
+      });
+    } catch (err) {
+      console.error(`[Worker My Requests Error ${requestId}]:`, err);
+      return jsonResponse({ success: false, message: err.message || 'Error fetching user requests' }, 500, {}, requestId);
+    }
+  }
+
+  // 15. Submit Join Request (POST /api/trips/:tripId/join-requests or /api/join-requests)
+  const joinPostMatch = url.pathname.match(/^\/api\/trips\/([^\/]+)\/join-requests$/) ||
+                        url.pathname.match(/^\/api\/join-requests(?:\/([^\/]+))?$/);
+  if (joinPostMatch && request.method === 'POST') {
+    const token = extractToken(request);
+    if (!token) {
+      return jsonResponse({ success: false, message: 'Authentication required. Please log in.' }, 401, {}, requestId);
+    }
+    const decoded = verifyToken(token, env);
+    if (!decoded || !decoded.id) {
+      return jsonResponse({ success: false, message: 'Invalid or expired session token.' }, 401, {}, requestId);
+    }
+
+    const dbAvailable = Boolean(env.MONGODB_URI);
+    if (!dbAvailable) {
+      return proxyToBackend(request, env, url, null, requestId);
+    }
+
+    try {
+      const body = await request.json().catch(() => ({}));
+      const pathTripId = joinPostMatch[1] && joinPostMatch[1] !== 'clear-all' ? joinPostMatch[1] : null;
+      const tripId = pathTripId || body.tripId;
+      if (!tripId) {
+        return jsonResponse({ success: false, message: 'Trip ID is required.' }, 400, {}, requestId);
+      }
+
+      const seats = Number(body.seatsRequested || body.seats) || 1;
+      const message = (body.message || '').trim() || 'I would like to join this trip!';
+
+      return await useDb(env, async (db) => {
+        const userObjId = safeObjectId(decoded.id);
+        const user = await db.collection('users').findOne({ _id: userObjId });
+        if (!user) {
+          return jsonResponse({ success: false, message: 'User account not found.' }, 401, {}, requestId);
+        }
+
+        const tripObjId = safeObjectId(tripId);
+        let trip = await db.collection('trips').findOne({ _id: tripObjId });
+        let isMystery = false;
+
+        if (!trip) {
+          trip = await db.collection('mysterytrips').findOne({ _id: tripObjId });
+          if (trip) isMystery = true;
+        }
+
+        if (!trip) {
+          return jsonResponse({ success: false, message: 'Trip not found.' }, 404, {}, requestId);
+        }
+
+        // Prevent organiser joining their own trip
+        const tripOrgId = (trip.organiserId || trip.createdBy || '').toString();
+        if (tripOrgId && tripOrgId === decoded.id) {
+          return jsonResponse({ success: false, message: 'You are the organiser of this trip.' }, 400, {}, requestId);
+        }
+
+        // Check if user is already confirmed member
+        const existingMember = await db.collection('tripmembers').findOne({
+          trip: trip._id,
+          user: userObjId,
+          status: 'accepted'
+        });
+        if (existingMember) {
+          return jsonResponse({ success: false, message: 'You are already a confirmed traveler on this trip.' }, 400, {}, requestId);
+        }
+
+        // Prevent duplicate active requests
+        const existingReq = await db.collection('joinrequests').findOne({
+          $or: [{ trip: trip._id }, { mysteryTrip: trip._id }],
+          user: userObjId,
+          status: { $in: ['pending', 'approved'] }
+        });
+        if (existingReq) {
+          return jsonResponse({
+            success: false,
+            message: `You already have an active (${existingReq.status}) request to join this trip.`
+          }, 400, {}, requestId);
+        }
+
+        // Check available capacity
+        if (trip.availableSeats !== undefined && trip.availableSeats < seats) {
+          return jsonResponse({
+            success: false,
+            message: `Trip capacity exceeded. Only ${trip.availableSeats} seat(s) remaining.`
+          }, 400, {}, requestId);
+        }
+
+        const organiserId = trip.organiserId || trip.createdBy || null;
+
+        const newDoc = {
+          trip: isMystery ? undefined : trip._id,
+          mysteryTrip: isMystery ? trip._id : undefined,
+          tripType: isMystery ? 'mystery' : 'normal',
+          user: userObjId,
+          organiser: safeObjectId(organiserId),
+          seatsRequested: seats,
+          message,
+          status: 'pending',
+          requestedAt: new Date(),
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+
+        const result = await db.collection('joinrequests').insertOne(newDoc);
+
+        // Notify organiser
+        if (organiserId) {
+          await db.collection('notifications').insertOne({
+            user: safeObjectId(organiserId),
+            trip: trip._id,
+            type: isMystery ? 'mystery_join_request' : 'join_request',
+            title: isMystery ? 'New Mystery Traveler Request' : 'New Traveler Join Request',
+            message: `${user.name} requested to join "${trip.title}" (${seats} seat${seats > 1 ? 's' : ''}).`,
+            link: '#/organiser-requests',
+            isRead: false,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          });
+        }
+
+        return jsonResponse({
+          success: true,
+          message: 'Your join request has been sent to the organisers for review!',
+          request: {
+            ...newDoc,
+            _id: result.insertedId.toString(),
+            user: { _id: user._id.toString(), name: user.name, email: user.email },
+            trip: { _id: trip._id.toString(), title: trip.title }
+          }
+        }, 201, {}, requestId);
+      });
+    } catch (err) {
+      console.error(`[Worker Join Request Submit Error ${requestId}]:`, err);
+      return jsonResponse({ success: false, message: err.message || 'Error submitting join request' }, 500, {}, requestId);
+    }
+  }
+
+  // 16. Organiser Action: Accept / Reject Join Request (PATCH /api/join-requests/:requestId)
+  const reqPatchMatch = url.pathname.match(/^\/api\/join-requests\/([a-fA-F0-9]{24})$/);
+  if (reqPatchMatch && request.method === 'PATCH') {
+    const token = extractToken(request);
+    if (!token) {
+      return jsonResponse({ success: false, message: 'Authentication required. Please log in.' }, 401, {}, requestId);
+    }
+    const decoded = verifyToken(token, env);
+    if (!decoded || !decoded.id) {
+      return jsonResponse({ success: false, message: 'Invalid or expired session token.' }, 401, {}, requestId);
+    }
+
+    const dbAvailable = Boolean(env.MONGODB_URI);
+    if (!dbAvailable) {
+      return proxyToBackend(request, env, url, null, requestId);
+    }
+
+    try {
+      const requestIdParam = reqPatchMatch[1];
+      const body = await request.json().catch(() => ({}));
+      const { status, rejectionReason } = body;
+
+      if (!['approved', 'rejected'].includes(status)) {
+        return jsonResponse({ success: false, message: 'Status must be approved or rejected.' }, 400, {}, requestId);
+      }
+
+      return await useDb(env, async (db) => {
+        const userObjId = safeObjectId(decoded.id);
+        const user = await db.collection('users').findOne({ _id: userObjId });
+        if (!user || !['organiser', 'organizer', 'admin'].includes((user.role || '').toLowerCase())) {
+          return jsonResponse({ success: false, message: 'Access denied: Only tour organisers can approve or reject join requests.' }, 403, {}, requestId);
+        }
+
+        const requestDoc = await db.collection('joinrequests').findOne({ _id: safeObjectId(requestIdParam) });
+        if (!requestDoc) {
+          return jsonResponse({ success: false, message: 'Join request not found.' }, 404, {}, requestId);
+        }
+
+        let trip = null;
+        if (requestDoc.trip) {
+          trip = await db.collection('trips').findOne({ _id: safeObjectId(requestDoc.trip) });
+        } else if (requestDoc.mysteryTrip) {
+          trip = await db.collection('mysterytrips').findOne({ _id: safeObjectId(requestDoc.mysteryTrip) });
+        }
+
+        // Organiser isolation: only trip owner or assigned organiser or admin
+        const isOwner = (requestDoc.organiser && requestDoc.organiser.toString() === decoded.id) ||
+          (trip && trip.organiserId && trip.organiserId.toString() === decoded.id) ||
+          (trip && trip.createdBy && trip.createdBy.toString() === decoded.id) ||
+          (user.role || '').toLowerCase() === 'admin';
+
+        if (!isOwner) {
+          return jsonResponse({
+            success: false,
+            message: 'Access denied: You can only review join requests for trips you organise.'
+          }, 403, {}, requestId);
+        }
+
+        if (requestDoc.status === status) {
+          return jsonResponse({
+            success: true,
+            message: `Join request is already marked as ${status}.`,
+            request: { ...requestDoc, _id: requestDoc._id.toString() }
+          }, 200, {}, requestId);
+        }
+
+        const seatsNeeded = requestDoc.seatsRequested || 1;
+        const travelerId = requestDoc.user;
+
+        if (status === 'approved') {
+          if (trip && trip.availableSeats !== undefined && trip.availableSeats < seatsNeeded) {
+            return jsonResponse({
+              success: false,
+              message: `Cannot approve: Trip capacity reached. Only ${trip.availableSeats} seat(s) available, but ${seatsNeeded} requested.`
+            }, 400, {}, requestId);
+          }
+
+          if (trip && trip.availableSeats !== undefined) {
+            const collectionName = requestDoc.mysteryTrip ? 'mysterytrips' : 'trips';
+            await db.collection(collectionName).updateOne(
+              { _id: trip._id },
+              { $inc: { availableSeats: -seatsNeeded } }
+            );
+          }
+
+          if (requestDoc.trip) {
+            await db.collection('tripmembers').updateOne(
+              { trip: trip._id, user: safeObjectId(travelerId) },
+              {
+                $set: { role: 'viewer', status: 'accepted', updatedAt: new Date() },
+                $setOnInsert: { createdAt: new Date() }
+              },
+              { upsert: true }
+            );
+          }
+
+          await db.collection('notifications').insertOne({
+            user: safeObjectId(travelerId),
+            trip: trip ? trip._id : undefined,
+            type: requestDoc.mysteryTrip ? 'mystery_approved' : 'join_approved',
+            title: 'Trip Request Approved! 🎉',
+            message: `Your request to join "${trip ? trip.title : 'expedition'}" has been approved! Seat confirmed.`,
+            link: requestDoc.mysteryTrip ? '#/mystery-trips' : `#/trips/${trip ? trip._id : ''}`,
+            isRead: false,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          });
+        } else if (status === 'rejected') {
+          if (requestDoc.status === 'approved' && trip) {
+            const collectionName = requestDoc.mysteryTrip ? 'mysterytrips' : 'trips';
+            await db.collection(collectionName).updateOne(
+              { _id: trip._id },
+              { $inc: { availableSeats: seatsNeeded } }
+            );
+            if (requestDoc.trip) {
+              await db.collection('tripmembers').deleteOne({ trip: trip._id, user: safeObjectId(travelerId) });
+            }
+          }
+
+          await db.collection('notifications').insertOne({
+            user: safeObjectId(travelerId),
+            trip: trip ? trip._id : undefined,
+            type: requestDoc.mysteryTrip ? 'mystery_rejected' : 'join_rejected',
+            title: 'Trip Request Update',
+            message: `Your request to join "${trip ? trip.title : 'expedition'}" was not accepted.${rejectionReason ? ` Reason: ${rejectionReason}` : ''}`,
+            link: '#/my-requests',
+            isRead: false,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          });
+        }
+
+        await db.collection('joinrequests').updateOne(
+          { _id: requestDoc._id },
+          {
+            $set: {
+              status,
+              rejectionReason: rejectionReason || '',
+              reviewedAt: new Date(),
+              reviewedBy: userObjId,
+              updatedAt: new Date()
+            }
+          }
+        );
+
+        return jsonResponse({
+          success: true,
+          message: `Join request marked as ${status}.`,
+          request: {
+            ...requestDoc,
+            _id: requestDoc._id.toString(),
+            status,
+            rejectionReason: rejectionReason || '',
+            reviewedAt: new Date()
+          }
+        }, 200, {}, requestId);
+      });
+    } catch (err) {
+      console.error(`[Worker Respond Join Request Error ${requestId}]:`, err);
+      return jsonResponse({ success: false, message: err.message || 'Error updating join request' }, 500, {}, requestId);
+    }
+  }
+
+  // 17. Delete Join Request (DELETE /api/join-requests/:requestId)
+  const reqDeleteMatch = url.pathname.match(/^\/api\/join-requests\/([a-fA-F0-9]{24})$/);
+  if (reqDeleteMatch && request.method === 'DELETE') {
+    const token = extractToken(request);
+    if (!token) {
+      return jsonResponse({ success: false, message: 'Authentication required. Please log in.' }, 401, {}, requestId);
+    }
+    const decoded = verifyToken(token, env);
+    if (!decoded || !decoded.id) {
+      return jsonResponse({ success: false, message: 'Invalid or expired session token.' }, 401, {}, requestId);
+    }
+
+    const dbAvailable = Boolean(env.MONGODB_URI);
+    if (!dbAvailable) {
+      return proxyToBackend(request, env, url, null, requestId);
+    }
+
+    try {
+      const requestIdParam = reqDeleteMatch[1];
+      return await useDb(env, async (db) => {
+        const userObjId = safeObjectId(decoded.id);
+        const user = await db.collection('users').findOne({ _id: userObjId });
+        const requestDoc = await db.collection('joinrequests').findOne({ _id: safeObjectId(requestIdParam) });
+
+        if (!requestDoc) {
+          return jsonResponse({ success: false, message: 'Join request not found.' }, 404, {}, requestId);
+        }
+
+        let trip = null;
+        if (requestDoc.trip) {
+          trip = await db.collection('trips').findOne({ _id: safeObjectId(requestDoc.trip) });
+        } else if (requestDoc.mysteryTrip) {
+          trip = await db.collection('mysterytrips').findOne({ _id: safeObjectId(requestDoc.mysteryTrip) });
+        }
+
+        const isTraveler = (requestDoc.user || '').toString() === decoded.id;
+        const isOrganiserUser = ['organiser', 'organizer', 'admin'].includes((user?.role || '').toLowerCase());
+        const isTripOrganiser = isOrganiserUser && (
+          (requestDoc.organiser && requestDoc.organiser.toString() === decoded.id) ||
+          (trip && trip.organiserId && trip.organiserId.toString() === decoded.id) ||
+          (trip && trip.createdBy && trip.createdBy.toString() === decoded.id) ||
+          (user?.role || '').toLowerCase() === 'admin'
+        );
+
+        if (!isTraveler && !isTripOrganiser) {
+          return jsonResponse({
+            success: false,
+            message: 'Access denied: You can only delete your own requests or requests for trips you organise.'
+          }, 403, {}, requestId);
+        }
+
+        if (isTraveler && !isTripOrganiser && requestDoc.status === 'approved') {
+          return jsonResponse({
+            success: false,
+            message: 'This request has already been approved. Please contact the trip organiser to cancel your reservation.'
+          }, 400, {}, requestId);
+        }
+
+        if (requestDoc.status === 'approved' && trip) {
+          const seatsToRestore = requestDoc.seatsRequested || 1;
+          const collectionName = requestDoc.mysteryTrip ? 'mysterytrips' : 'trips';
+          await db.collection(collectionName).updateOne(
+            { _id: trip._id },
+            { $inc: { availableSeats: seatsToRestore } }
+          );
+          if (requestDoc.trip) {
+            await db.collection('tripmembers').deleteOne({ trip: trip._id, user: safeObjectId(requestDoc.user) });
+          }
+        }
+
+        await db.collection('joinrequests').deleteOne({ _id: requestDoc._id });
+
+        return jsonResponse({
+          success: true,
+          message: 'Join request deleted successfully.'
+        }, 200, {}, requestId);
+      });
+    } catch (err) {
+      console.error(`[Worker Delete Join Request Error ${requestId}]:`, err);
+      return jsonResponse({ success: false, message: err.message || 'Error deleting join request' }, 500, {}, requestId);
+    }
+  }
+
+  // 18. Trips List & Explore (GET /api/trips)
+  if (url.pathname === '/api/trips' && request.method === 'GET') {
+    const dbAvailable = Boolean(env.MONGODB_URI);
+    if (!dbAvailable) {
+      return proxyToBackend(request, env, url, null, requestId);
+    }
+
+    try {
+      const explore = url.searchParams.get('explore') === 'true';
+      const myTrips = url.searchParams.get('myTrips') === 'true';
+      const q = (url.searchParams.get('q') || '').trim();
+
+      const token = extractToken(request);
+      const decoded = token ? verifyToken(token, env) : null;
+
+      return await useDb(env, async (db) => {
+        let currentUser = null;
+        if (decoded && decoded.id) {
+          currentUser = await db.collection('users').findOne({ _id: safeObjectId(decoded.id) });
+        }
+        const isOrganiserUser = ['organiser', 'organizer', 'admin'].includes((currentUser?.role || '').toLowerCase());
+
+        let query = {};
+
+        if (explore) {
+          query = {
+            $and: [
+              {
+                $or: [
+                  { isPublished: true },
+                  { publicationStatus: { $in: ['Published', 'published'] } },
+                  { status: { $in: ['published', 'Published'] } }
+                ]
+              },
+              { isPublished: { $ne: false } },
+              { publicationStatus: { $nin: ['Draft', 'draft', 'Unpublished', 'unpublished'] } },
+              { status: { $nin: ['cancelled', 'draft', 'Draft'] } }
+            ]
+          };
+        } else if (myTrips && currentUser) {
+          if (isOrganiserUser) {
+            query = {
+              $or: [
+                { createdBy: currentUser._id },
+                { organiserId: currentUser._id },
+                { createdBy: decoded.id },
+                { organiserId: decoded.id }
+              ]
+            };
+          } else {
+            const memberships = await db.collection('tripmembers')
+              .find({ user: safeObjectId(currentUser._id), status: 'accepted' })
+              .toArray();
+            const memberTripIds = memberships.map(m => m.trip);
+            query = { _id: { $in: memberTripIds } };
+          }
+        } else if (isOrganiserUser && currentUser) {
+          query = {
+            $or: [
+              { createdBy: currentUser._id },
+              { organiserId: currentUser._id },
+              { createdBy: decoded.id },
+              { organiserId: decoded.id }
+            ]
+          };
+        } else {
+          query = {
+            $and: [
+              {
+                $or: [
+                  { isPublished: true },
+                  { publicationStatus: { $in: ['Published', 'published'] } },
+                  { status: { $in: ['published', 'Published'] } }
+                ]
+              },
+              { isPublished: { $ne: false } },
+              { publicationStatus: { $nin: ['Draft', 'draft'] } }
+            ]
+          };
+        }
+
+        if (q) {
+          query.$or = [
+            { title: { $regex: new RegExp(q, 'i') } },
+            { destination: { $regex: new RegExp(q, 'i') } },
+            { description: { $regex: new RegExp(q, 'i') } }
+          ];
+        }
+
+        const rawTrips = await db.collection('trips')
+          .find(query)
+          .sort({ createdAt: -1 })
+          .toArray();
+
+        const userIds = [
+          ...new Set([
+            ...rawTrips.map(t => t.createdBy).filter(Boolean).map(id => id.toString()),
+            ...rawTrips.map(t => t.organiserId).filter(Boolean).map(id => id.toString())
+          ])
+        ];
+
+        const usersList = await db.collection('users').find({
+          _id: { $in: userIds.map(safeObjectId) }
+        }).toArray();
+        const userMap = new Map(usersList.map(u => [u._id.toString(), u]));
+
+        let userRequestsMap = new Map();
+        let userMembershipsSet = new Set();
+        if (currentUser) {
+          const [reqs, mems] = await Promise.all([
+            db.collection('joinrequests').find({
+              user: safeObjectId(currentUser._id),
+              status: { $ne: 'cancelled' }
+            }).toArray(),
+            db.collection('tripmembers').find({
+              user: safeObjectId(currentUser._id),
+              status: 'accepted'
+            }).toArray()
+          ]);
+          reqs.forEach(r => userRequestsMap.set((r.trip || '').toString(), r));
+          mems.forEach(m => userMembershipsSet.add((m.trip || '').toString()));
+        }
+
+        const trips = rawTrips.map(t => {
+          const tripIdStr = t._id.toString();
+          const creator = userMap.get((t.createdBy || '').toString());
+          const org = userMap.get((t.organiserId || '').toString());
+          const req = userRequestsMap.get(tripIdStr);
+          const isMember = userMembershipsSet.has(tripIdStr);
+
+          const isOwner = currentUser && (
+            (t.createdBy && t.createdBy.toString() === currentUser._id.toString()) ||
+            (t.organiserId && t.organiserId.toString() === currentUser._id.toString())
+          );
+
+          const userRole = isOwner ? 'owner' : (isMember ? 'viewer' : 'none');
+
+          return {
+            _id: tripIdStr,
+            id: tripIdStr,
+            title: t.title,
+            destination: t.destination,
+            description: t.description || '',
+            startDate: t.startDate,
+            endDate: t.endDate,
+            estimatedBudget: t.estimatedBudget || 1000,
+            price: t.price || t.estimatedBudget || 1000,
+            currency: t.currency || 'INR',
+            coverImage: t.coverImage || 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=1200&q=80',
+            status: t.status || 'upcoming',
+            capacity: t.capacity || 15,
+            availableSeats: t.availableSeats !== undefined ? t.availableSeats : (t.capacity || 15),
+            isPublished: t.isPublished !== false,
+            publicationStatus: t.publicationStatus || (t.isPublished !== false ? 'Published' : 'Draft'),
+            tags: t.tags || ['Vacation'],
+            readinessScore: t.readinessScore || 0,
+            createdBy: creator ? { _id: creator._id.toString(), name: creator.name, email: creator.email, avatar: creator.avatar || creator.profile?.avatar } : undefined,
+            organiserId: org ? { _id: org._id.toString(), name: org.name, email: org.email, avatar: org.avatar || org.profile?.avatar } : undefined,
+            userRole,
+            isMember,
+            isOwner,
+            joinRequestStatus: req ? req.status : null,
+            joinRequestId: req ? req._id.toString() : null,
+            createdAt: t.createdAt,
+            updatedAt: t.updatedAt
+          };
+        });
+
+        return jsonResponse({
+          success: true,
+          count: trips.length,
+          trips
+        }, 200, {}, requestId);
+      });
+    } catch (err) {
+      console.error(`[Worker Trips Error ${requestId}]:`, err);
+      return jsonResponse({ success: false, message: err.message || 'Error fetching trips' }, 500, {}, requestId);
+    }
+  }
+
+  // 19. Create Trip (POST /api/trips)
+  if (url.pathname === '/api/trips' && request.method === 'POST') {
+    const token = extractToken(request);
+    if (!token) {
+      return jsonResponse({ success: false, message: 'Authentication required. Please log in.' }, 401, {}, requestId);
+    }
+    const decoded = verifyToken(token, env);
+    if (!decoded || !decoded.id) {
+      return jsonResponse({ success: false, message: 'Invalid or expired session token.' }, 401, {}, requestId);
+    }
+
+    const dbAvailable = Boolean(env.MONGODB_URI);
+    if (!dbAvailable) {
+      return proxyToBackend(request, env, url, null, requestId);
+    }
+
+    try {
+      const body = await request.json().catch(() => ({}));
+      const {
+        title, destination, description, startDate, endDate,
+        capacity, price, estimatedBudget, currency, coverImage, tags,
+        emergencyContacts, isPublished, publicationStatus
+      } = body;
+
+      if (!title || !destination || !startDate || !endDate) {
+        return jsonResponse({ success: false, message: 'Title, destination, start date, and end date are required.' }, 400, {}, requestId);
+      }
+
+      return await useDb(env, async (db) => {
+        const userObjId = safeObjectId(decoded.id);
+        const user = await db.collection('users').findOne({ _id: userObjId });
+        if (!user || !['organiser', 'organizer', 'admin'].includes((user.role || '').toLowerCase())) {
+          return jsonResponse({ success: false, message: 'Access denied: Only users with the Organiser role can create trips.' }, 403, {}, requestId);
+        }
+
+        const tripCapacity = Number(capacity) || 15;
+        const tripIsPublished = isPublished !== undefined ? Boolean(isPublished) : ((publicationStatus || '').toLowerCase() === 'draft' ? false : true);
+        const tripPublicationStatus = tripIsPublished ? 'Published' : 'Draft';
+
+        const newTrip = {
+          title: title.trim(),
+          destination: destination.trim(),
+          description: (description || '').trim(),
+          startDate: new Date(startDate),
+          endDate: new Date(endDate),
+          estimatedBudget: Number(estimatedBudget) || Number(price) || 1000,
+          price: Number(price) || Number(estimatedBudget) || 1000,
+          currency: currency || user.preferences?.currency || 'INR',
+          capacity: tripCapacity,
+          availableSeats: tripCapacity,
+          coverImage: coverImage || 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=1200&q=80',
+          status: 'upcoming',
+          isPublished: tripIsPublished,
+          publicationStatus: tripPublicationStatus,
+          tags: tags || ['Vacation'],
+          emergencyContacts: emergencyContacts || [],
+          createdBy: user._id,
+          organiserId: user._id,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+
+        const result = await db.collection('trips').insertOne(newTrip);
+        const tripId = result.insertedId;
+
+        await db.collection('tripmembers').insertOne({
+          trip: tripId,
+          user: user._id,
+          role: 'owner',
+          status: 'accepted',
+          createdAt: new Date(),
+          updatedAt: new Date()
+        });
+
+        const tripResponse = {
+          ...newTrip,
+          _id: tripId.toString(),
+          id: tripId.toString(),
+          createdBy: { _id: user._id.toString(), name: user.name, email: user.email, avatar: user.avatar || user.profile?.avatar },
+          organiserId: { _id: user._id.toString(), name: user.name, email: user.email, avatar: user.avatar || user.profile?.avatar }
+        };
+
+        return jsonResponse({
+          success: true,
+          message: `Expedition "${newTrip.title}" created and published successfully!`,
+          trip: tripResponse
+        }, 201, {}, requestId);
+      });
+    } catch (err) {
+      console.error(`[Worker Create Trip Error ${requestId}]:`, err);
+      return jsonResponse({ success: false, message: err.message || 'Error creating trip' }, 500, {}, requestId);
+    }
+  }
+
+  // 20. Trip Details (GET /api/trips/:tripId)
+  const tripDetailsMatch = url.pathname.match(/^\/api\/trips\/([a-fA-F0-9]{24})$/);
+  if (tripDetailsMatch && request.method === 'GET') {
+    const dbAvailable = Boolean(env.MONGODB_URI);
+    if (!dbAvailable) {
+      return proxyToBackend(request, env, url, null, requestId);
+    }
+
+    try {
+      const tripIdParam = tripDetailsMatch[1];
+      const token = extractToken(request);
+      const decoded = token ? verifyToken(token, env) : null;
+
+      return await useDb(env, async (db) => {
+        const trip = await db.collection('trips').findOne({ _id: safeObjectId(tripIdParam) });
+        if (!trip) {
+          return jsonResponse({ success: false, message: 'Trip not found.' }, 404, {}, requestId);
+        }
+
+        const [creator, org] = await Promise.all([
+          db.collection('users').findOne({ _id: safeObjectId(trip.createdBy) }),
+          db.collection('users').findOne({ _id: safeObjectId(trip.organiserId) })
+        ]);
+
+        let isMember = false;
+        let isOwner = false;
+        let userRole = 'none';
+        let joinRequestStatus = null;
+
+        if (decoded && decoded.id) {
+          const currentUserId = safeObjectId(decoded.id);
+          const [membership, joinReq] = await Promise.all([
+            db.collection('tripmembers').findOne({ trip: trip._id, user: currentUserId, status: 'accepted' }),
+            db.collection('joinrequests').findOne({ trip: trip._id, user: currentUserId, status: { $ne: 'cancelled' } })
+          ]);
+          isOwner = (trip.createdBy && trip.createdBy.toString() === decoded.id) ||
+                    (trip.organiserId && trip.organiserId.toString() === decoded.id);
+          isMember = Boolean(membership) || isOwner;
+          userRole = isOwner ? 'owner' : (membership ? (membership.role || 'viewer') : 'none');
+          if (joinReq) joinRequestStatus = joinReq.status;
+        }
+
+        const populatedTrip = {
+          ...trip,
+          _id: trip._id.toString(),
+          id: trip._id.toString(),
+          isOwner,
+          isMember,
+          userRole,
+          joinRequestStatus,
+          createdBy: creator ? { _id: creator._id.toString(), name: creator.name, email: creator.email, avatar: creator.avatar || creator.profile?.avatar } : undefined,
+          organiserId: org ? { _id: org._id.toString(), name: org.name, email: org.email, avatar: org.avatar || org.profile?.avatar } : undefined
+        };
+
+        return jsonResponse({
+          success: true,
+          trip: populatedTrip
+        }, 200, {}, requestId);
+      });
+    } catch (err) {
+      console.error(`[Worker Trip Details Error ${requestId}]:`, err);
+      return jsonResponse({ success: false, message: err.message || 'Error fetching trip details' }, 500, {}, requestId);
+    }
+  }
+
+  // 21. Dedicated Publish & Unpublish Routes (POST/PATCH/PUT /api/trips/:tripId/publish | unpublish)
+  const tripPublishMatch = url.pathname.match(/^\/api\/trips\/([a-fA-F0-9]{24})\/(publish|unpublish)$/);
+  if (tripPublishMatch && ['POST', 'PATCH', 'PUT'].includes(request.method)) {
+    const token = extractToken(request);
+    if (!token) {
+      return jsonResponse({ success: false, message: 'Authentication required. Please log in.' }, 401, {}, requestId);
+    }
+    const decoded = verifyToken(token, env);
+    if (!decoded || !decoded.id) {
+      return jsonResponse({ success: false, message: 'Invalid or expired session token.' }, 401, {}, requestId);
+    }
+
+    const dbAvailable = Boolean(env.MONGODB_URI);
+    if (!dbAvailable) {
+      return proxyToBackend(request, env, url, null, requestId);
+    }
+
+    try {
+      const tripId = tripPublishMatch[1];
+      const action = tripPublishMatch[2];
+      const isPublish = action === 'publish';
+
+      return await useDb(env, async (db) => {
+        const userObjId = safeObjectId(decoded.id);
+        const user = await db.collection('users').findOne({ _id: userObjId });
+        if (!user || !['organiser', 'organizer', 'admin'].includes((user.role || '').toLowerCase())) {
+          return jsonResponse({ success: false, message: 'Access denied: Only organisers can publish or unpublish trips.' }, 403, {}, requestId);
+        }
+
+        const trip = await db.collection('trips').findOne({ _id: safeObjectId(tripId) });
+        if (!trip) {
+          return jsonResponse({ success: false, message: 'Trip not found.' }, 404, {}, requestId);
+        }
+
+        const isOwner = (trip.createdBy && trip.createdBy.toString() === decoded.id) ||
+                        (trip.organiserId && trip.organiserId.toString() === decoded.id) ||
+                        (user.role || '').toLowerCase() === 'admin';
+        if (!isOwner) {
+          return jsonResponse({ success: false, message: 'Access denied: You can only publish trips you organise.' }, 403, {}, requestId);
+        }
+
+        await db.collection('trips').updateOne(
+          { _id: trip._id },
+          {
+            $set: {
+              isPublished: isPublish,
+              publicationStatus: isPublish ? 'Published' : 'Draft',
+              updatedAt: new Date()
+            }
+          }
+        );
+
+        return jsonResponse({
+          success: true,
+          message: `Expedition ${isPublish ? 'published' : 'moved to drafts'} successfully!`,
+          trip: {
+            ...trip,
+            _id: trip._id.toString(),
+            isPublished: isPublish,
+            publicationStatus: isPublish ? 'Published' : 'Draft'
+          }
+        }, 200, {}, requestId);
+      });
+    } catch (err) {
+      console.error(`[Worker Publish/Unpublish Error ${requestId}]:`, err);
+      return jsonResponse({ success: false, message: err.message || 'Error updating publication status' }, 500, {}, requestId);
+    }
+  }
+
+  // 22. Delete Trip (DELETE /api/trips/:tripId)
+  const tripDelMatch = url.pathname.match(/^\/api\/trips\/([a-fA-F0-9]{24})$/);
+  if (tripDelMatch && request.method === 'DELETE') {
+    const token = extractToken(request);
+    if (!token) {
+      return jsonResponse({ success: false, message: 'Authentication required. Please log in.' }, 401, {}, requestId);
+    }
+    const decoded = verifyToken(token, env);
+    if (!decoded || !decoded.id) {
+      return jsonResponse({ success: false, message: 'Invalid or expired session token.' }, 401, {}, requestId);
+    }
+
+    const dbAvailable = Boolean(env.MONGODB_URI);
+    if (!dbAvailable) {
+      return proxyToBackend(request, env, url, null, requestId);
+    }
+
+    try {
+      const tripId = tripDelMatch[1];
+      return await useDb(env, async (db) => {
+        const trip = await db.collection('trips').findOne({ _id: safeObjectId(tripId) });
+        if (!trip) {
+          return jsonResponse({ success: false, message: 'Trip not found.' }, 404, {}, requestId);
+        }
+
+        const isOwner = (trip.createdBy && trip.createdBy.toString() === decoded.id) ||
+                        (trip.organiserId && trip.organiserId.toString() === decoded.id) ||
+                        (decoded.role === 'admin');
+        if (!isOwner) {
+          return jsonResponse({ success: false, message: 'Access denied: You can only delete trips you organise.' }, 403, {}, requestId);
+        }
+
+        await Promise.all([
+          db.collection('trips').deleteOne({ _id: trip._id }),
+          db.collection('tripmembers').deleteMany({ trip: trip._id }),
+          db.collection('joinrequests').deleteMany({ trip: trip._id })
+        ]);
+
+        return jsonResponse({
+          success: true,
+          message: 'Trip deleted successfully.'
+        }, 200, {}, requestId);
+      });
+    } catch (err) {
+      console.error(`[Worker Delete Trip Error ${requestId}]:`, err);
+      return jsonResponse({ success: false, message: err.message || 'Error deleting trip' }, 500, {}, requestId);
     }
   }
 

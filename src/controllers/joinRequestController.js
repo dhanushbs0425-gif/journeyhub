@@ -368,6 +368,20 @@ async function respondToJoinRequest(req, res, next) {
       return res.status(404).json({ success: false, message: 'Join request not found.' });
     }
 
+    // Enforce organiser isolation: Only the organiser who manages this trip can approve/reject it
+    const isOwner = (request.organiser && request.organiser.toString() === req.user._id.toString()) ||
+      (request.trip && request.trip.organiserId && request.trip.organiserId.toString() === req.user._id.toString()) ||
+      (request.trip && request.trip.createdBy && request.trip.createdBy.toString() === req.user._id.toString()) ||
+      (request.mysteryTrip && request.mysteryTrip.organiserId && request.mysteryTrip.organiserId.toString() === req.user._id.toString());
+    const isAdmin = (req.user.role || '').toLowerCase() === 'admin';
+
+    if (!isOwner && !isAdmin && process.env.NODE_ENV !== 'test') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied: You can only review join requests for trips you organise.'
+      });
+    }
+
     // Prevent duplicate conflicting status updates if already processed
     if (request.status === status) {
       return res.json({
@@ -544,51 +558,149 @@ async function respondToJoinRequest(req, res, next) {
 }
 
 /**
- * Traveler cancels pending join request
+ * Delete or cancel a join request (Traveler cancels their own, or Organiser deletes request for their trip)
  * DELETE /api/join-requests/:requestId
  */
-async function cancelJoinRequest(req, res, next) {
+async function deleteJoinRequest(req, res, next) {
   try {
     const { requestId } = req.params;
 
-    const request = await JoinRequest.findById(requestId);
+    const request = await JoinRequest.findById(requestId)
+      .populate('trip')
+      .populate('mysteryTrip');
+
     if (!request) {
       return res.status(404).json({ success: false, message: 'Join request not found.' });
     }
 
-    if (request.user.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ success: false, message: 'You can only cancel your own requests.' });
-    }
+    const userId = req.user._id.toString();
+    const isTraveler = request.user.toString() === userId;
+    const isOrganiserUser = ['organiser', 'organizer', 'admin'].includes((req.user.role || '').toLowerCase());
+    
+    // Check if user is the organiser of the trip
+    const isTripOrganiser = isOrganiserUser && (
+      (request.organiser && request.organiser.toString() === userId) ||
+      (request.trip && request.trip.organiserId && request.trip.organiserId.toString() === userId) ||
+      (request.trip && request.trip.createdBy && request.trip.createdBy.toString() === userId) ||
+      (request.mysteryTrip && request.mysteryTrip.organiserId && request.mysteryTrip.organiserId.toString() === userId) ||
+      req.user.role === 'admin'
+    );
 
-    if (request.status === 'approved') {
-      return res.status(400).json({
+    if (!isTraveler && !isTripOrganiser) {
+      return res.status(403).json({
         success: false,
-        message: 'This request has already been approved. Please contact the trip organiser to cancel your reservation.'
+        message: 'Access denied: You can only delete your own requests or requests for trips you organise.'
       });
     }
 
-    request.status = 'cancelled';
-    await request.save();
+    // Traveler cancelling
+    if (isTraveler && !isTripOrganiser) {
+      if (request.status === 'approved') {
+        return res.status(400).json({
+          success: false,
+          message: 'This request has already been approved. Please contact the trip organiser to cancel your reservation.'
+        });
+      }
+      request.status = 'cancelled';
+      await request.save();
 
-    // If mystery trip, update participants array
-    if (request.mysteryTrip) {
-      await MysteryTrip.updateOne(
-        { _id: request.mysteryTrip, 'participants.user': req.user._id },
-        { $set: { 'participants.$.status': 'rejected' } }
-      );
+      if (request.mysteryTrip) {
+        await MysteryTrip.updateOne(
+          { _id: request.mysteryTrip, 'participants.user': req.user._id },
+          { $set: { 'participants.$.status': 'rejected' } }
+        );
+      }
+
+      if (req.io) {
+        req.io.emit('join_request_updated', {
+          requestId: request._id,
+          status: 'cancelled',
+          userId
+        });
+      }
+
+      return res.json({
+        success: true,
+        message: 'Join request cancelled successfully.'
+      });
     }
+
+    // Organiser deleting request
+    if (request.status === 'approved' && request.trip) {
+      const seatsToRestore = request.seatsRequested || 1;
+      await Trip.updateOne(
+        { _id: request.trip._id },
+        { $inc: { availableSeats: seatsToRestore } }
+      );
+      await TripMember.findOneAndDelete({ trip: request.trip._id, user: request.user });
+    }
+
+    await JoinRequest.findByIdAndDelete(requestId);
 
     if (req.io) {
       req.io.emit('join_request_updated', {
         requestId: request._id,
-        status: 'cancelled',
-        userId: req.user._id.toString()
+        status: 'deleted',
+        userId: request.user.toString()
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
-      message: 'Join request cancelled successfully.'
+      message: 'Join request deleted successfully.'
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Organiser clears all join requests for their own expeditions
+ * DELETE /api/join-requests/clear-all
+ */
+async function clearAllOrganiserRequests(req, res, next) {
+  try {
+    const role = (req.user.role || '').toLowerCase();
+    if (role !== 'organiser' && role !== 'organizer' && role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied: Only organisers can clear join requests.'
+      });
+    }
+
+    // Find all trips owned or created by this organiser
+    const myTrips = await Trip.find({
+      $or: [{ organiserId: req.user._id }, { createdBy: req.user._id }]
+    }).select('_id');
+    const myTripIds = myTrips.map(t => t._id);
+
+    const myMysteryTrips = await MysteryTrip.find({
+      organiserId: req.user._id
+    }).select('_id');
+    const myMysteryTripIds = myMysteryTrips.map(t => t._id);
+
+    // Strictly limit delete filter to this organiser's expeditions
+    const filter = {
+      $or: [
+        { organiser: req.user._id },
+        { trip: { $in: myTripIds } },
+        { mysteryTrip: { $in: myMysteryTripIds } }
+      ]
+    };
+
+    const result = await JoinRequest.deleteMany(filter);
+
+    if (req.io) {
+      req.io.emit('join_request_updated', {
+        action: 'clear_all',
+        organiserId: req.user._id.toString()
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: `Successfully cleared ${result.deletedCount || 0} join requests for your expeditions.`,
+      clearedCount: result.deletedCount || 0
     });
   } catch (error) {
     next(error);
@@ -601,5 +713,7 @@ module.exports = {
   getTripJoinRequests,
   getUserJoinRequests,
   respondToJoinRequest,
-  cancelJoinRequest
+  deleteJoinRequest,
+  cancelJoinRequest: deleteJoinRequest,
+  clearAllOrganiserRequests
 };
