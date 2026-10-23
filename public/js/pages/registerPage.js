@@ -401,7 +401,7 @@ const RegisterPage = {
       } else if (isResendSandboxNotice) {
         RegisterPage.showAlert(`
           <div style="font-weight: 700; margin-bottom: 0.4rem;"><i class="fas fa-info-circle"></i> Resend Testing Mode:</div>
-          <div>In sandbox testing mode, verification codes can only be delivered to the verified developer email address (<code>dhanushbs0425@gmail.com</code>).</div>
+          <div>In sandbox testing mode, verification codes can only be delivered to the verified account owner / developer email address.</div>
           <div style="margin-top: 0.4rem; font-size: 0.8rem; color: #64748b;">To enable delivery to any email domain in production, verify your custom domain in the Resend dashboard.</div>
         `, 'warning');
       } else {
