@@ -200,7 +200,7 @@ async function verifyEmailOtp(req, res, next) {
 }
 
 /**
- * Step 3: Complete User Registration (Only after Email OTP Verification succeeds)
+ * Step 3: Complete User Registration (No OTP required)
  * POST /api/auth/register
  */
 async function register(req, res, next) {
@@ -230,24 +230,13 @@ async function register(req, res, next) {
       });
     }
 
-    // Verify that the email was successfully verified via OTP
-    const verifiedRecord = await EmailVerification.findOne({
-      email: cleanEmail,
-      isVerified: true
-    });
-
-    if (!verifiedRecord) {
+    // Validate required mobile phone number
+    const cleanPhone = (phone || '').toString().trim();
+    const phoneDigits = cleanPhone.replace(/\D/g, '');
+    if (!cleanPhone || phoneDigits.length < 10 || phoneDigits.length > 15) {
       return res.status(400).json({
         success: false,
-        message: 'Please send and verify the OTP for your email address before completing registration.'
-      });
-    }
-
-    // Allow 30 minutes from verification to finish registration
-    if (verifiedRecord.verifiedAt && Date.now() - verifiedRecord.verifiedAt.getTime() > 30 * 60 * 1000) {
-      return res.status(400).json({
-        success: false,
-        message: 'Email verification has expired. Please verify your email address again.'
+        message: 'Please provide a valid 10 to 15 digit mobile phone number.'
       });
     }
 
@@ -274,10 +263,22 @@ async function register(req, res, next) {
       });
     }
 
-    // Clean optional phone number if provided
-    let cleanPhone = '';
-    if (phone && phone.trim()) {
-      cleanPhone = phone.trim();
+    // Prevent duplicate mobile phone number accounts
+    const phoneLast10 = phoneDigits.length >= 10 ? phoneDigits.slice(-10) : phoneDigits;
+    const phonePattern = phoneLast10.split('').join('[\\s-]*');
+    const existingPhoneUser = await User.findOne({
+      $or: [
+        { phone: cleanPhone },
+        { phone: { $regex: new RegExp(phonePattern + '$') } },
+        { 'profile.phone': cleanPhone },
+        { 'profile.phone': { $regex: new RegExp(phonePattern + '$') } }
+      ]
+    });
+    if (existingPhoneUser) {
+      return res.status(400).json({
+        success: false,
+        message: 'An account with this mobile phone number already exists. Please log in.'
+      });
     }
 
     // Create real User record with role 'user' and emailVerified: true
@@ -288,8 +289,8 @@ async function register(req, res, next) {
       password, // User pre-save hook handles bcrypt hashing
       role: 'user', // Public registration ALWAYS assigns role 'user'
       emailVerified: true,
-      phoneVerified: false,
-      verificationMethod: 'email',
+      phoneVerified: true,
+      verificationMethod: 'password',
       status: 'active',
       profile: {
         avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80',
@@ -306,9 +307,6 @@ async function register(req, res, next) {
         theme: 'navy'
       }
     });
-
-    // Delete verification record so OTP cannot be reused
-    await EmailVerification.deleteOne({ _id: verifiedRecord._id });
 
     // Issue authenticated session token
     const token = generateToken(user._id);
@@ -336,7 +334,7 @@ async function register(req, res, next) {
 }
 
 /**
- * Standard Login (No OTP required for ordinary login)
+ * Standard Login (Supports Email or Mobile Phone Number + Password)
  * POST /api/auth/login
  */
 async function login(req, res, next) {
@@ -347,30 +345,44 @@ async function login(req, res, next) {
     if (!loginTarget || !password) {
       return res.status(400).json({
         success: false,
-        message: 'Please enter your email (or username) and password.'
+        message: 'Please enter your email or mobile phone number, and your password.'
       });
     }
 
     const lower = loginTarget.toLowerCase();
-    let user = await User.findOne({ email: lower }).select('+password');
+    let user = null;
 
-    // If not found and input does not contain '@', check if it matches an organiser name or prefix
-    if (!user && !lower.includes('@')) {
-      user = await User.findOne({
-        role: 'organiser',
-        $or: [
-          { name: new RegExp(`^${lower}$`, 'i') },
-          { email: new RegExp(`^${lower}@`, 'i') }
-        ]
-      }).select('+password');
+    // 1. Try finding by email
+    if (lower.includes('@')) {
+      user = await User.findOne({ email: lower }).select('+password');
     }
 
-    // Fallback: check phone
+    // 2. Try finding by mobile phone number
+    if (!user) {
+      const phoneDigits = loginTarget.replace(/\D/g, '');
+      if (phoneDigits.length >= 10) {
+        const phoneLast10 = phoneDigits.slice(-10);
+        const phonePattern = phoneLast10.split('').join('[\\s-]*');
+        user = await User.findOne({
+          $or: [
+            { phone: loginTarget },
+            { phone: { $regex: new RegExp(phonePattern + '$') } },
+            { 'profile.phone': loginTarget },
+            { 'profile.phone': { $regex: new RegExp(phonePattern + '$') } }
+          ]
+        }).select('+password');
+      }
+    }
+
+    // 3. Fallback: check organiser name or email prefix
     if (!user) {
       user = await User.findOne({
         $or: [
-          { phone: loginTarget },
-          { 'profile.phone': loginTarget }
+          { email: lower },
+          {
+            role: 'organiser',
+            name: new RegExp(`^${lower}$`, 'i')
+          }
         ]
       }).select('+password');
     }
@@ -378,7 +390,7 @@ async function login(req, res, next) {
     if (!user) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid email or password.'
+        message: 'Invalid email, mobile phone number, or password.'
       });
     }
 
@@ -387,7 +399,7 @@ async function login(req, res, next) {
     if (!isMatch) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid email or password.'
+        message: 'Invalid email, mobile phone number, or password.'
       });
     }
 

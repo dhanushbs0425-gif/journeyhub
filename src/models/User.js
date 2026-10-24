@@ -47,8 +47,8 @@ const userSchema = new mongoose.Schema(
     },
     verificationMethod: {
       type: String,
-      enum: ['phone', 'email'],
-      default: 'phone'
+      enum: ['phone', 'email', 'password', 'none'],
+      default: 'email'
     },
     status: {
       type: String,

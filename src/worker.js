@@ -355,7 +355,7 @@ async function handleRequest(request, env, ctx, requestId) {
     }
   }
 
-  // 6. Complete Registration (Direct Serverless Registration)
+  // 6. Complete Registration (Direct Serverless Registration without OTP)
   if (url.pathname === '/api/auth/register' && request.method === 'POST') {
     const dbAvailable = Boolean(env.MONGODB_URI);
     if (!dbAvailable) {
@@ -366,17 +366,22 @@ async function handleRequest(request, env, ctx, requestId) {
       const body = await request.json().catch(() => ({}));
       const name = (body.name || '').trim();
       const email = (body.email || '').trim().toLowerCase();
+      const phone = (body.phone || '').trim();
       const password = body.password || '';
       const confirmPassword = body.confirmPassword;
-      const phone = (body.phone || '').trim();
 
-      if (name.length < 2) {
+      if (!name || name.length < 2) {
         return jsonResponse({ success: false, message: 'Full name must be at least 2 characters.' }, 400, {}, requestId);
       }
-      if (!email.includes('@')) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!email || !emailRegex.test(email)) {
         return jsonResponse({ success: false, message: 'Please provide a valid email address.' }, 400, {}, requestId);
       }
-      if (password.length < 6) {
+      const phoneDigits = phone.replace(/\D/g, '');
+      if (!phone || phoneDigits.length < 10 || phoneDigits.length > 15) {
+        return jsonResponse({ success: false, message: 'Please provide a valid 10 to 15 digit mobile phone number.' }, 400, {}, requestId);
+      }
+      if (!password || password.length < 6) {
         return jsonResponse({ success: false, message: 'Password must be at least 6 characters long.' }, 400, {}, requestId);
       }
       if (confirmPassword !== undefined && password !== confirmPassword) {
@@ -384,29 +389,30 @@ async function handleRequest(request, env, ctx, requestId) {
       }
 
       return await useDb(env, async (db) => {
-        // Check if verified via OTP
-        const verifiedRecord = await db.collection('emailverifications').findOne({ email, isVerified: true });
-        if (!verifiedRecord) {
-          return jsonResponse({
-            success: false,
-            message: 'Please send and verify the OTP for your email address before completing registration.'
-          }, 400, {}, requestId);
-        }
-
-        // Expiry check (30 minutes)
-        if (verifiedRecord.verifiedAt && Date.now() - new Date(verifiedRecord.verifiedAt).getTime() > 30 * 60 * 1000) {
-          return jsonResponse({
-            success: false,
-            message: 'Email verification has expired. Please verify your email address again.'
-          }, 400, {}, requestId);
-        }
-
-        // Duplicate check
+        // Duplicate email check
         const existingEmailUser = await db.collection('users').findOne({ email });
         if (existingEmailUser) {
           return jsonResponse({
             success: false,
             message: 'An account with this email address already exists. Please log in.'
+          }, 400, {}, requestId);
+        }
+
+        // Duplicate mobile phone number check
+        const phoneLast10 = phoneDigits.length >= 10 ? phoneDigits.slice(-10) : phoneDigits;
+        const phonePattern = phoneLast10.split('').join('[\\s-]*');
+        const existingPhoneUser = await db.collection('users').findOne({
+          $or: [
+            { phone },
+            { phone: { $regex: new RegExp(phonePattern + '$') } },
+            { 'profile.phone': phone },
+            { 'profile.phone': { $regex: new RegExp(phonePattern + '$') } }
+          ]
+        });
+        if (existingPhoneUser) {
+          return jsonResponse({
+            success: false,
+            message: 'An account with this mobile phone number already exists. Please log in.'
           }, 400, {}, requestId);
         }
 
@@ -421,8 +427,8 @@ async function handleRequest(request, env, ctx, requestId) {
           password: hashedPassword,
           role: 'user',
           emailVerified: true,
-          phoneVerified: false,
-          verificationMethod: 'email',
+          phoneVerified: true,
+          verificationMethod: 'password',
           status: 'active',
           profile: {
             avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80',
@@ -446,8 +452,6 @@ async function handleRequest(request, env, ctx, requestId) {
         };
 
         const result = await db.collection('users').insertOne(newUser);
-        await db.collection('emailverifications').deleteOne({ _id: verifiedRecord._id });
-
         const token = generateToken(result.insertedId, env);
 
         return jsonResponse({
@@ -458,6 +462,7 @@ async function handleRequest(request, env, ctx, requestId) {
             _id: result.insertedId.toString(),
             name,
             email,
+            phone,
             role: 'user',
             avatar: newUser.avatar,
             profile: newUser.profile
@@ -470,7 +475,7 @@ async function handleRequest(request, env, ctx, requestId) {
     }
   }
 
-  // 7. Login (Direct Serverless Authentication)
+  // 7. Login (Direct Serverless Authentication via Email or Mobile Phone Number + Password)
   if (url.pathname === '/api/auth/login' && request.method === 'POST') {
     const dbAvailable = Boolean(env.MONGODB_URI);
     if (!dbAvailable) {
@@ -479,34 +484,59 @@ async function handleRequest(request, env, ctx, requestId) {
 
     try {
       const body = await request.json().catch(() => ({}));
-      const loginTarget = ((body.identifier || body.email || body.phone || '')).toString().trim().toLowerCase();
+      const loginTarget = ((body.identifier || body.email || body.phone || '')).toString().trim();
       const password = body.password || '';
 
       if (!loginTarget || !password) {
-        return jsonResponse({ success: false, message: 'Please enter your email and password.' }, 400, {}, requestId);
+        return jsonResponse({ success: false, message: 'Please enter your email or mobile phone number, and your password.' }, 400, {}, requestId);
       }
 
       return await useDb(env, async (db) => {
-        let user = await db.collection('users').findOne({ email: loginTarget });
-        if (!user && !loginTarget.includes('@')) {
-          user = await db.collection('users').findOne({
-            role: 'organiser',
-            name: { $regex: new RegExp(`^${loginTarget}$`, 'i') }
-          });
+        const lower = loginTarget.toLowerCase();
+        let user = null;
+
+        // 1. By email
+        if (lower.includes('@')) {
+          user = await db.collection('users').findOne({ email: lower });
         }
+
+        // 2. By mobile phone number
+        if (!user) {
+          const phoneDigits = loginTarget.replace(/\D/g, '');
+          if (phoneDigits.length >= 10) {
+            const phoneLast10 = phoneDigits.slice(-10);
+            const phonePattern = phoneLast10.split('').join('[\\s-]*');
+            user = await db.collection('users').findOne({
+              $or: [
+                { phone: loginTarget },
+                { phone: { $regex: new RegExp(phonePattern + '$') } },
+                { 'profile.phone': loginTarget },
+                { 'profile.phone': { $regex: new RegExp(phonePattern + '$') } }
+              ]
+            });
+          }
+        }
+
+        // 3. Fallback: check organiser name or email prefix
         if (!user) {
           user = await db.collection('users').findOne({
-            $or: [{ phone: loginTarget }, { 'profile.phone': loginTarget }]
+            $or: [
+              { email: lower },
+              {
+                role: 'organiser',
+                name: { $regex: new RegExp(`^${lower}$`, 'i') }
+              }
+            ]
           });
         }
 
         if (!user) {
-          return jsonResponse({ success: false, message: 'Invalid email or password.' }, 401, {}, requestId);
+          return jsonResponse({ success: false, message: 'Invalid email, mobile phone number, or password.' }, 401, {}, requestId);
         }
 
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
-          return jsonResponse({ success: false, message: 'Invalid email or password.' }, 401, {}, requestId);
+          return jsonResponse({ success: false, message: 'Invalid email, mobile phone number, or password.' }, 401, {}, requestId);
         }
 
         const token = generateToken(user._id, env);

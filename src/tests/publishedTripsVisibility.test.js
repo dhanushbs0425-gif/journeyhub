@@ -352,7 +352,7 @@ async function runPublishedTripsVisibilityTests() {
     // TEST 9: Secret Mystery Miles Destination Hidden
     // ----------------------------------------------------
     console.log('[TEST 9] Testing Secret Mystery Miles Destination Hidden Before Reveal...');
-    let mysteryTrip = await MysteryTrip.findOne({ status: 'published' });
+    let mysteryTrip = await MysteryTrip.findOne({ status: 'published', isRevealed: false, revealAt: { $gt: new Date() } });
     if (!mysteryTrip) {
       mysteryTrip = await MysteryTrip.create({
         title: 'Secret Coast Expedition 2026',

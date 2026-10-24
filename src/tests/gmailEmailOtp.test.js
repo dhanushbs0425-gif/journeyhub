@@ -121,9 +121,9 @@ async function runGmailEmailOtpTests() {
     console.log('✔ Test 3 passed: All 3 predefined Organisers intact with role organiser.');
 
     // ----------------------------------------------------
-    // TEST 4: Rejection of Unverified Registration Attempts
+    // TEST 4: Mobile Number Validation Gatekeeping
     // ----------------------------------------------------
-    console.log('[TEST 4] Testing Unverified Registration Gatekeeping...');
+    console.log('[TEST 4] Testing Mobile Number Validation Gatekeeping...');
     const unverifiedEmail = 'unverified_traveler@example.com';
     await EmailVerification.deleteMany({ email: unverifiedEmail });
     await User.deleteMany({ email: unverifiedEmail });
@@ -139,9 +139,9 @@ async function runGmailEmailOtpTests() {
     const mockResUnverified = createMockRes();
     await authController.register(mockReqUnverified, mockResUnverified, () => {});
 
-    assert.strictEqual(mockResUnverified.statusCode, 400, 'Must reject unverified registration');
-    assert.ok(mockResUnverified.body.message.includes('verify'));
-    console.log('✔ Test 4 passed: Unverified registration strictly rejected.');
+    assert.strictEqual(mockResUnverified.statusCode, 400, 'Must reject registration without valid mobile phone');
+    assert.ok(mockResUnverified.body.message.includes('mobile phone number'));
+    console.log('✔ Test 4 passed: Missing mobile phone number strictly rejected.');
 
     // ----------------------------------------------------
     // TEST 5: Real OTP Dispatch, Bcrypt Hashing & 60s Cooldown

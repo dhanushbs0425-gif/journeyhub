@@ -22,13 +22,13 @@ const LoginPage = {
           <form id="login-form" novalidate>
             <div class="form-group" style="margin-bottom: 1.25rem;">
               <label class="form-label" for="login-identifier" style="display: block; font-size: 0.85rem; font-weight: 600; color: #334155; margin-bottom: 0.4rem;">
-                <i class="fas fa-mobile-alt" style="color: var(--primary-teal, #0d9488); margin-right: 0.35rem;"></i> Mobile Phone Number or Email
+                <i class="fas fa-user-circle" style="color: var(--primary-teal, #0d9488); margin-right: 0.35rem;"></i> Email or Mobile Number <span style="color: #ef4444;">*</span>
               </label>
               <input
                 type="text"
                 id="login-identifier"
                 class="form-control"
-                placeholder="e.g. 9876543210 or user@example.com"
+                placeholder="e.g. user@gmail.com or 9876543210"
                 autocomplete="username"
                 required
                 style="width: 100%; padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 0.95rem;"
@@ -119,7 +119,7 @@ const LoginPage = {
       const rememberMe = document.getElementById('login-remember-me')?.checked || false;
 
       if (!identifier || !password) {
-        LoginPage.showAlert('Please enter your mobile phone number (or email) and password.', 'error');
+        LoginPage.showAlert('Please enter your email or mobile number, and your password.', 'error');
         return;
       }
 
