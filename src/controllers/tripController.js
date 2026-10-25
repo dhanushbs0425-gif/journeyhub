@@ -242,30 +242,39 @@ async function getTrips(req, res, next) {
       }
     } else if (isOrganiserUser) {
       // 2. Organiser workspace & dashboard: Trips created and managed by this organiser
-      query = { $or: [{ createdBy: req.user._id }, { organiserId: req.user._id }] };
+      const organiserScope = { $or: [{ createdBy: req.user._id }, { organiserId: req.user._id }] };
+      const conditions = [organiserScope];
 
       if (status && status !== 'all') {
         const lower = status.toLowerCase();
         if (lower === 'upcoming') {
-          query.$or = [{ startDate: { $gt: now } }, { $and: [{ endDate: { $gte: now } }, { status: 'upcoming' }] }];
-          query.status = { $nin: ['completed', 'cancelled', 'ongoing'] };
+          conditions.push({
+            $or: [{ startDate: { $gt: now } }, { $and: [{ endDate: { $gte: now } }, { status: 'upcoming' }] }],
+            status: { $nin: ['completed', 'cancelled', 'ongoing'] }
+          });
         } else if (lower === 'completed') {
-          query.$or = [{ endDate: { $lt: now } }, { status: 'completed' }];
-          query.status = { $ne: 'cancelled' };
+          conditions.push({
+            $or: [{ endDate: { $lt: now } }, { status: 'completed' }],
+            status: { $ne: 'cancelled' }
+          });
         } else if (lower === 'ongoing') {
-          query.$or = [
-            { status: 'ongoing' },
-            { $and: [{ startDate: { $lte: now } }, { endDate: { $gte: now } }] }
-          ];
-          query.status = { $nin: ['completed', 'cancelled'] };
+          conditions.push({
+            $or: [
+              { status: 'ongoing' },
+              { $and: [{ startDate: { $lte: now } }, { endDate: { $gte: now } }] }
+            ],
+            status: { $nin: ['completed', 'cancelled'] }
+          });
         } else if (lower === 'draft') {
-          query.publicationStatus = { $in: ['Draft', 'draft', 'Unpublished', 'unpublished'] };
+          conditions.push({ publicationStatus: { $in: ['Draft', 'draft', 'Unpublished', 'unpublished'] } });
         } else if (lower === 'published') {
-          query.publicationStatus = { $in: ['Published', 'published'] };
+          conditions.push({ publicationStatus: { $in: ['Published', 'published'] } });
         }
       } else {
-        query.status = { $ne: 'cancelled' };
+        conditions.push({ status: { $ne: 'cancelled' } });
       }
+
+      query = { $and: conditions };
     } else if (req.user) {
       // 3. Regular traveler / user: My Trips
       // Displays trips the user has joined or been approved to attend

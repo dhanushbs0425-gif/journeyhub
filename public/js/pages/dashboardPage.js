@@ -54,23 +54,17 @@ const DashboardPage = {
         <!-- Join Requests Real-Time Alert Banner -->
         <div id="dash-requests-banner" style="margin-bottom: 1.5rem;"></div>
 
-        <!-- Filter & Search Controls -->
+        <!-- Section Title & Search -->
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
-          <div class="tabs-header" style="margin-bottom: 0;">
-            ${isOrganiser ? `
-              <button class="tab-btn ${this.currentFilter === 'all' ? 'active' : ''}" data-filter="all" onclick="DashboardPage.setFilter('all', this)">All Expeditions</button>
-              <button class="tab-btn ${this.currentFilter === 'upcoming' ? 'active' : ''}" data-filter="upcoming" onclick="DashboardPage.setFilter('upcoming', this)">Upcoming</button>
-              <button class="tab-btn ${this.currentFilter === 'ongoing' ? 'active' : ''}" data-filter="ongoing" onclick="DashboardPage.setFilter('ongoing', this)">Ongoing</button>
-              <button class="tab-btn ${this.currentFilter === 'completed' ? 'active' : ''}" data-filter="completed" onclick="DashboardPage.setFilter('completed', this)">Completed</button>
-            ` : `
-              <button class="tab-btn ${this.currentFilter === 'all' ? 'active' : ''}" data-filter="all" onclick="DashboardPage.setFilter('all', this)">All Trips</button>
-              <button class="tab-btn ${this.currentFilter === 'upcoming' ? 'active' : ''}" data-filter="upcoming" onclick="DashboardPage.setFilter('upcoming', this)">Upcoming Trips</button>
-              <button class="tab-btn ${this.currentFilter === 'ongoing' ? 'active' : ''}" data-filter="ongoing" onclick="DashboardPage.setFilter('ongoing', this)">Ongoing Trips</button>
-              <button class="tab-btn ${this.currentFilter === 'completed' ? 'active' : ''}" data-filter="completed" onclick="DashboardPage.setFilter('completed', this)">Completed Trips</button>
-            `}
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <h2 style="font-size: 1.2rem; font-weight: 700; color: var(--text-main); margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+              <i class="fas fa-route" style="color: var(--primary-teal);"></i>
+              <span>${isOrganiser ? 'Your Expeditions' : 'Your Enrolled Journeys'}</span>
+            </h2>
+            <span id="dash-trips-count-badge" class="badge badge-teal" style="font-size: 0.75rem; display: none;">0</span>
           </div>
 
-          <div style="position: relative; width: 280px;">
+          <div style="position: relative; width: 280px; max-width: 100%;">
             <i class="fas fa-search" style="position: absolute; left: 12px; top: 12px; color: var(--text-muted); font-size: 0.85rem;"></i>
             <input type="text" id="trip-search-input" class="form-control" placeholder="Search destination, trip..." style="padding-left: 2rem;" />
           </div>
@@ -238,9 +232,7 @@ const DashboardPage = {
   },
 
   setFilter(filter, btn) {
-    DashboardPage.currentFilter = filter;
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    if (btn) btn.classList.add('active');
+    DashboardPage.currentFilter = filter || 'all';
     DashboardPage.loadTripsList();
   },
 
@@ -251,53 +243,40 @@ const DashboardPage = {
     const isOrganiser = window.State.isOrganiser();
 
     try {
-      let endpoint = `/api/trips?status=${DashboardPage.currentFilter}`;
+      let endpoint = `/api/trips?myTrips=true`;
       if (DashboardPage.searchQuery) {
         endpoint += `&q=${encodeURIComponent(DashboardPage.searchQuery)}`;
       }
 
       const res = await window.API.get(endpoint);
-      const trips = res.trips || [];
+      const rawTrips = res.trips || [];
+
+      // Filter query client-side if searched
+      let trips = rawTrips;
+      if (DashboardPage.searchQuery) {
+        const qLower = DashboardPage.searchQuery.toLowerCase();
+        trips = trips.filter(t => 
+          (t.title && t.title.toLowerCase().includes(qLower)) ||
+          (t.destination && t.destination.toLowerCase().includes(qLower)) ||
+          (t.description && t.description.toLowerCase().includes(qLower))
+        );
+      }
+
+      // Update count badge
+      const countBadge = document.getElementById('dash-trips-count-badge');
+      if (countBadge) {
+        countBadge.textContent = `${trips.length} Trip${trips.length === 1 ? '' : 's'}`;
+        countBadge.style.display = 'inline-block';
+      }
 
       if (trips.length === 0) {
-        let emptyTitle = 'No trips found';
-        let emptyText = 'No trips available in this category.';
-        let emptyAction = `<a href="#/explore-trips" class="btn btn-teal"><i class="fas fa-compass"></i> Explore Published Trips</a>`;
-
-        if (isOrganiser) {
-          if (DashboardPage.currentFilter === 'upcoming') {
-            emptyTitle = 'No upcoming expeditions';
-            emptyText = 'You have no upcoming expeditions scheduled. Create a new trip to launch a workspace!';
-          } else if (DashboardPage.currentFilter === 'ongoing') {
-            emptyTitle = 'No ongoing expeditions';
-            emptyText = 'You currently have no active expeditions in progress.';
-          } else if (DashboardPage.currentFilter === 'completed') {
-            emptyTitle = 'No completed expeditions';
-            emptyText = 'You have not completed any expeditions yet.';
-          } else {
-            emptyTitle = 'No expeditions found';
-            emptyText = 'You have not created or managed any expeditions in this category yet.';
-          }
-          emptyAction = `<a href="#/trips/create" class="btn btn-teal"><i class="fas fa-plus"></i> Create New Trip</a>`;
-        } else {
-          if (DashboardPage.currentFilter === 'upcoming') {
-            emptyTitle = 'No upcoming trips';
-            emptyText = 'You have no upcoming trips scheduled. Discover published expeditions and request to join!';
-            emptyAction = `<a href="#/explore-trips" class="btn btn-teal"><i class="fas fa-compass"></i> Explore Published Trips</a>`;
-          } else if (DashboardPage.currentFilter === 'ongoing') {
-            emptyTitle = 'No ongoing trips';
-            emptyText = 'You currently have no active expeditions in progress.';
-            emptyAction = `<a href="#/explore-trips" class="btn btn-teal"><i class="fas fa-compass"></i> Explore Published Trips</a>`;
-          } else if (DashboardPage.currentFilter === 'completed') {
-            emptyTitle = 'No completed trips';
-            emptyText = 'You have not completed any expeditions yet. Join a journey to start building your travel diary!';
-            emptyAction = `<a href="#/explore-trips" class="btn btn-teal"><i class="fas fa-compass"></i> Explore Published Trips</a>`;
-          } else {
-            emptyTitle = 'No trips joined yet';
-            emptyText = "You haven't joined any trips yet. Discover exciting journeys published by verified organisers and join the adventure!";
-            emptyAction = `<a href="#/explore-trips" class="btn btn-teal"><i class="fas fa-compass"></i> Explore Published Trips</a>`;
-          }
-        }
+        let emptyTitle = isOrganiser ? 'No Expeditions Yet' : 'No Trips Joined Yet';
+        let emptyText = isOrganiser 
+          ? 'You have not created any expeditions yet. Launch your first expedition workspace to start organizing!' 
+          : "You haven't joined any trips yet. Discover exciting journeys published by verified organisers and join the adventure!";
+        let emptyAction = isOrganiser 
+          ? `<a href="#/trips/create" class="btn btn-teal"><i class="fas fa-plus-circle"></i> Create New Trip</a>`
+          : `<a href="#/explore-trips" class="btn btn-teal"><i class="fas fa-compass"></i> Explore Published Trips</a>`;
 
         container.innerHTML = `
           <div class="empty-state">
@@ -310,19 +289,38 @@ const DashboardPage = {
         return;
       }
 
+      const now = new Date();
+
       container.innerHTML = `
         <div class="trips-grid">
           ${trips.map(trip => {
-            const start = new Date(trip.startDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-            const end = new Date(trip.endDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-            const statusClass = trip.status === 'ongoing' ? 'badge-teal' : trip.status === 'completed' ? 'badge-success' : 'badge-navy';
+            const startDate = new Date(trip.startDate);
+            const endDate = new Date(trip.endDate);
+            const start = startDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+            const end = endDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+
+            // Dynamically calculate accurate trip status
+            let statusLabel = 'Upcoming';
+            let statusClass = 'badge-navy';
+
+            if (endDate < now || trip.status === 'completed') {
+              statusLabel = 'Completed';
+              statusClass = 'badge-success';
+            } else if ((startDate <= now && endDate >= now) || trip.status === 'ongoing') {
+              statusLabel = 'Ongoing';
+              statusClass = 'badge-teal';
+            } else {
+              statusLabel = 'Upcoming';
+              statusClass = 'badge-navy';
+            }
+
             const price = trip.price || trip.estimatedBudget || 0;
             const currency = trip.currency || 'INR';
 
             let roleBadgeHtml = '';
 
             if (isOrganiser) {
-              const isOwner = trip.userRole === 'owner';
+              const isOwner = trip.userRole === 'owner' || trip.isOwner;
               roleBadgeHtml = `<span class="badge ${isOwner ? 'badge-orange' : 'badge-navy'}">${isOwner ? 'Creator' : 'Organiser'}</span>`;
             } else {
               // Regular Traveler
@@ -346,7 +344,7 @@ const DashboardPage = {
                 <img src="${coverImg}" class="trip-card-img" alt="${trip.title}" style="object-fit: cover; width: 100%; height: 180px;" onerror="if(window.DestinationImages){window.DestinationImages.handleImageError(this, '${safeDest}', '${safeTitle}');}" loading="lazy" />
                 <div class="trip-card-body">
                   <div class="trip-card-badges">
-                    <span class="badge ${statusClass}">${trip.status}</span>
+                    <span class="badge ${statusClass}">${statusLabel}</span>
                     ${roleBadgeHtml}
                   </div>
 
@@ -369,6 +367,8 @@ const DashboardPage = {
               </div>
             `;
           }).join('')}
+        </div>
+      `;
         </div>
       `;
     } catch (err) {

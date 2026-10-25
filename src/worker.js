@@ -1447,8 +1447,12 @@ async function handleRequest(request, env, ctx, requestId) {
 
         let query = {};
 
+        const statusParam = (url.searchParams.get('status') || '').toLowerCase();
+        const now = new Date();
+        const conditions = [];
+
         if (explore) {
-          query = {
+          conditions.push({
             $and: [
               {
                 $or: [
@@ -1461,35 +1465,34 @@ async function handleRequest(request, env, ctx, requestId) {
               { publicationStatus: { $nin: ['Draft', 'draft', 'Unpublished', 'unpublished'] } },
               { status: { $nin: ['cancelled', 'draft', 'Draft'] } }
             ]
-          };
-        } else if (myTrips && currentUser) {
+          });
+        } else if (currentUser) {
           if (isOrganiserUser) {
-            query = {
+            conditions.push({
               $or: [
+                { createdBy: safeObjectId(currentUser._id) },
+                { organiserId: safeObjectId(currentUser._id) },
                 { createdBy: currentUser._id },
-                { organiserId: currentUser._id },
-                { createdBy: decoded.id },
-                { organiserId: decoded.id }
+                { organiserId: currentUser._id }
               ]
-            };
+            });
           } else {
-            const memberships = await db.collection('tripmembers')
-              .find({ user: safeObjectId(currentUser._id), status: 'accepted' })
-              .toArray();
-            const memberTripIds = memberships.map(m => m.trip);
-            query = { _id: { $in: memberTripIds } };
+            // Regular traveler: ONLY trips the user has joined/approved
+            const [memberships, approvedReqs] = await Promise.all([
+              db.collection('tripmembers').find({ user: safeObjectId(currentUser._id), status: 'accepted' }).toArray(),
+              db.collection('joinrequests').find({ user: safeObjectId(currentUser._id), status: 'approved' }).toArray()
+            ]);
+            const joinedIds = [
+              ...new Set([
+                ...memberships.map(m => m.trip ? safeObjectId(m.trip) : null),
+                ...approvedReqs.map(r => r.trip ? safeObjectId(r.trip) : null)
+              ])
+            ].filter(Boolean);
+            conditions.push({ _id: { $in: joinedIds } });
           }
-        } else if (isOrganiserUser && currentUser) {
-          query = {
-            $or: [
-              { createdBy: currentUser._id },
-              { organiserId: currentUser._id },
-              { createdBy: decoded.id },
-              { organiserId: decoded.id }
-            ]
-          };
         } else {
-          query = {
+          // Unauthenticated default to public explore
+          conditions.push({
             $and: [
               {
                 $or: [
@@ -1501,16 +1504,45 @@ async function handleRequest(request, env, ctx, requestId) {
               { isPublished: { $ne: false } },
               { publicationStatus: { $nin: ['Draft', 'draft'] } }
             ]
-          };
+          });
+        }
+
+        // Apply status filter if provided
+        if (statusParam && statusParam !== 'all') {
+          if (statusParam === 'upcoming') {
+            conditions.push({
+              $or: [{ startDate: { $gt: now } }, { $and: [{ endDate: { $gte: now } }, { status: 'upcoming' }] }],
+              status: { $nin: ['completed', 'cancelled', 'ongoing'] }
+            });
+          } else if (statusParam === 'completed') {
+            conditions.push({
+              $or: [{ endDate: { $lt: now } }, { status: 'completed' }],
+              status: { $ne: 'cancelled' }
+            });
+          } else if (statusParam === 'ongoing') {
+            conditions.push({
+              $or: [
+                { status: 'ongoing' },
+                { $and: [{ startDate: { $lte: now } }, { endDate: { $gte: now } }] }
+              ],
+              status: { $nin: ['completed', 'cancelled'] }
+            });
+          }
+        } else if (!explore) {
+          conditions.push({ status: { $ne: 'cancelled' } });
         }
 
         if (q) {
-          query.$or = [
-            { title: { $regex: new RegExp(q, 'i') } },
-            { destination: { $regex: new RegExp(q, 'i') } },
-            { description: { $regex: new RegExp(q, 'i') } }
-          ];
+          conditions.push({
+            $or: [
+              { title: { $regex: new RegExp(q, 'i') } },
+              { destination: { $regex: new RegExp(q, 'i') } },
+              { description: { $regex: new RegExp(q, 'i') } }
+            ]
+          });
         }
+
+        query = conditions.length > 1 ? { $and: conditions } : (conditions[0] || {});
 
         const rawTrips = await db.collection('trips')
           .find(query)
