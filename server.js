@@ -149,8 +149,8 @@ async function startServer() {
     console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`📦 Database: ${isMemoryDB() ? 'Embedded MongoDB (Self-contained in-memory)' : 'External Persistent MongoDB'}`);
     console.log(`----------------------------------------------------`);
-    console.log(`📧 Gmail SMTP Service: ${diag.isConfigured ? 'READY (Real Gmail OTP enabled for ' + diag.smtpUserMasked + ')' : 'UNCONFIGURED'}`);
-    console.log(`📱 MSG91 SMS Service:  ${diag.isMsg91Configured ? 'READY (AuthKey: ' + diag.msg91AuthKeyMasked + ', Template: ' + diag.msg91TemplateId + ')' : 'UNCONFIGURED'}`);
+    console.log(`🔐 Authentication: Direct Registration & Dual-Identifier Login (No OTP required)`);
+    console.log(`🛡️ JWT Session Auth: Active (7d expiration)`);
     console.log(`====================================================`);
   });
 
