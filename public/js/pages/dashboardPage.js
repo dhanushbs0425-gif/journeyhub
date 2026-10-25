@@ -337,9 +337,13 @@ const DashboardPage = {
               }
             }
 
+            const coverImg = window.DestinationImages ? window.DestinationImages.getTripCoverImage(trip) : (trip.coverImage || 'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=800&q=80');
+            const safeDest = (trip.destination || '').replace(/'/g, "\\'");
+            const safeTitle = (trip.title || '').replace(/'/g, "\\'");
+
             return `
               <div class="trip-card" role="button" tabindex="0" onclick="DashboardPage.selectAndNavigate('${trip._id}')" style="cursor: pointer;">
-                <img src="${trip.coverImage || 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=800&q=80'}" class="trip-card-img" alt="${trip.title}" />
+                <img src="${coverImg}" class="trip-card-img" alt="${trip.title}" style="object-fit: cover; width: 100%; height: 180px;" onerror="if(window.DestinationImages){window.DestinationImages.handleImageError(this, '${safeDest}', '${safeTitle}');}" loading="lazy" />
                 <div class="trip-card-body">
                   <div class="trip-card-badges">
                     <span class="badge ${statusClass}">${trip.status}</span>

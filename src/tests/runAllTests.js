@@ -15,6 +15,7 @@ const runPublishedTripsVisibilityTests = require('./publishedTripsVisibility.tes
 const runMyTripsAndDetailsNavTests = require('./myTripsAndDetailsNav.test');
 const runBugs123Tests = require('./bugs123EndToEnd.test');
 const runNoOtpAuthAndLoginTests = require('./noOtpAuthAndLogin.test');
+const { runDestinationImageTests } = require('./destinationImages.test');
 
 console.log('====================================================');
 console.log('   JOURNEYHUB MCA CAPSTONE - COMPLETE TEST SUITE    ');
@@ -35,6 +36,7 @@ console.log('====================================================\n');
     await runMyTripsAndDetailsNavTests();
     await runNoOtpAuthAndLoginTests();
     await runBugs123Tests();
+    runDestinationImageTests();
     console.log('====================================================');
     console.log('       ALL UNIT & INTEGRATION TESTS PASSED (100%)   ');
     console.log('====================================================');

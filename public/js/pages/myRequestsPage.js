@@ -196,6 +196,11 @@ const MyRequestsPage = {
         month: 'short',
         year: 'numeric'
       });
+      const cover = window.DestinationImages 
+        ? window.DestinationImages.getTripCoverImage(trip)
+        : (trip.coverImage || 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=400&q=80');
+      const safeDest = (trip.destination || '').replace(/'/g, "\\'");
+      const safeTitle = (trip.title || '').replace(/'/g, "\\'");
 
       let badgeClass = 'badge-warning';
       let statusIcon = 'fa-clock';
@@ -220,7 +225,10 @@ const MyRequestsPage = {
           <div style="display: flex; gap: 1.25rem; flex-wrap: wrap; justify-content: space-between;">
             <!-- Trip Image & Details -->
             <div style="display: flex; gap: 1rem; align-items: flex-start; flex: 1; min-width: 280px;">
-              <img src="${trip.coverImage || 'https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?auto=format&fit=crop&w=300&q=80'}" 
+              <img src="${cover}" 
+                   alt="${safeTitle || safeDest || 'Trip'}"
+                   loading="lazy"
+                   onerror="if(window.DestinationImages){window.DestinationImages.handleImageError(this, '${safeDest}', '${safeTitle}');}"
                    style="width: 100px; height: 80px; object-fit: cover; border-radius: 8px; flex-shrink: 0;" />
               <div>
                 <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem; flex-wrap: wrap;">

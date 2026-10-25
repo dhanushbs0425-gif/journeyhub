@@ -140,7 +140,7 @@ const TripDetailsPage = {
 
         <!-- Trip Hero Banner -->
         <div class="trip-hero">
-          <img src="${trip.coverImage || 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=1200&q=80'}" alt="${trip.title}" />
+          <img src="${window.DestinationImages ? window.DestinationImages.getTripCoverImage(trip) : (trip.coverImage || 'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=1200&q=80')}" alt="${trip.title}" style="width: 100%; height: 100%; object-fit: cover;" onerror="if(window.DestinationImages){window.DestinationImages.handleImageError(this, '${(trip.destination||'').replace(/'/g, "\\'")}', '${(trip.title||'').replace(/'/g, "\\'")}');}" />
           <div class="trip-hero-overlay">
             <div style="flex: 1;">
               <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem;">

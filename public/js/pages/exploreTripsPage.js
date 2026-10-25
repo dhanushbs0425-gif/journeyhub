@@ -266,7 +266,9 @@ const ExploreTripsPage = {
       const currency = trip.currency || 'INR';
       const organiserName = trip.organiserId?.name || trip.createdBy?.name || 'Verified Organiser';
       const organiserAvatar = trip.organiserId?.avatar || trip.createdBy?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=250&q=80';
-      const cover = trip.coverImage || 'https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?auto=format&fit=crop&w=800&q=80';
+      const cover = window.DestinationImages ? window.DestinationImages.getTripCoverImage(trip) : (trip.coverImage || 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=800&q=80');
+      const safeDest = (trip.destination || '').replace(/'/g, "\\'");
+      const safeTitle = (trip.title || '').replace(/'/g, "\\'");
 
       // Check user request status
       const existingReq = this.userRequests.find(r => (r.trip?._id || r.trip) === trip._id && r.status !== 'cancelled');
@@ -310,7 +312,7 @@ const ExploreTripsPage = {
         <div class="jh-card" style="display: flex; flex-direction: column; overflow: hidden; padding: 0; transition: transform 0.2s ease, box-shadow 0.2s ease;">
           <!-- Card Image & Seats Badge -->
           <div style="position: relative; height: 180px; overflow: hidden; background: #1e293b;">
-            <img src="${cover}" alt="${trip.title}" style="width: 100%; height: 100%; object-fit: cover;" />
+            <img src="${cover}" alt="${trip.title}" style="width: 100%; height: 100%; object-fit: cover; display: block;" onerror="if(window.DestinationImages){window.DestinationImages.handleImageError(this, '${safeDest}', '${safeTitle}');}" loading="lazy" />
             <div style="position: absolute; top: 0.75rem; right: 0.75rem;">
               <span class="badge ${availableSeats > 3 ? 'badge-teal' : availableSeats > 0 ? 'badge-warning' : 'badge-danger'}" style="backdrop-filter: blur(4px); box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
                 <i class="fas fa-chair" style="margin-right: 0.3rem;"></i> ${availableSeats > 0 ? `${availableSeats} Seats Left` : 'Sold Out'}

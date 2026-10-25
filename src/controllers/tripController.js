@@ -6,6 +6,7 @@ const PackingItem = require('../models/PackingItem');
 const BookingDocument = require('../models/BookingDocument');
 const Expense = require('../models/Expense');
 const Notification = require('../models/Notification');
+const { resolveDestinationImage, isGenericPlaceholder } = require('../utils/destinationImages');
 
 /**
  * Calculate dynamic Trip Readiness Checklist metrics
@@ -141,7 +142,7 @@ async function createTrip(req, res, next) {
       availableSeats: tripCapacity,
       joiningDeadline: joiningDeadline || null,
       currency: currency || req.user.preferences?.currency || 'USD',
-      coverImage: coverImage || 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=1200&q=80',
+      coverImage: (coverImage && !isGenericPlaceholder(coverImage)) ? coverImage : resolveDestinationImage(destination, title),
       status,
       isPublished: tripIsPublished,
       publicationStatus: tripPublicationStatus,

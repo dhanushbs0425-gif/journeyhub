@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { resolveDestinationImage, isGenericPlaceholder } = require('../utils/destinationImages');
 
 const tripSchema = new mongoose.Schema(
   {
@@ -122,6 +123,11 @@ tripSchema.pre('save', function (next) {
   } else if (this.status && (this.status === 'draft' || this.status === 'Draft')) {
     this.isPublished = false;
     this.publicationStatus = 'Draft';
+  }
+
+  // Dynamically resolve destination-specific cover image if missing or placeholder
+  if (!this.coverImage || isGenericPlaceholder(this.coverImage)) {
+    this.coverImage = resolveDestinationImage(this.destination, this.title);
   }
 
   next();

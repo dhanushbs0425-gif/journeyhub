@@ -97,6 +97,56 @@ function safeObjectId(id) {
   return id;
 }
 
+const GENERIC_PLACEHOLDER_IDS = [
+  'photo-1488646953014-85cb44e25828',
+  'photo-1493976040374-85c8e12f0c0e',
+  'photo-1599661046289-e31897846e41'
+];
+
+function isGenericPlaceholder(url) {
+  if (!url || typeof url !== 'string') return true;
+  return GENERIC_PLACEHOLDER_IDS.some(id => url.includes(id));
+}
+
+const DESTINATION_IMAGE_MAP = [
+  { keys: ['ooty', 'udhagamandalam', 'nilgiri', 'coonoor'], url: 'https://images.unsplash.com/photo-1589182373726-e4f658ab50f0?auto=format&fit=crop&w=1200&q=80' },
+  { keys: ['goa', 'panaji', 'calangute', 'baga', 'anjuna'], url: 'https://images.unsplash.com/photo-1512343879784-a960bf40e7f2?auto=format&fit=crop&w=1200&q=80' },
+  { keys: ['manali', 'solang', 'rohtang', 'kullu'], url: 'https://images.unsplash.com/photo-1626621341517-bbf3d9990a23?auto=format&fit=crop&w=1200&q=80' },
+  { keys: ['munnar', 'idukki', 'eravikulam'], url: 'https://images.unsplash.com/photo-1593693397690-362cb9666fc2?auto=format&fit=crop&w=1200&q=80' },
+  { keys: ['jaipur', 'pink city', 'amer fort', 'hawa mahal'], url: 'https://images.unsplash.com/photo-1599661046289-e31897846e41?auto=format&fit=crop&w=1200&q=80' },
+  { keys: ['udaipur', 'lake pichola', 'city palace'], url: 'https://images.unsplash.com/photo-1615836245337-f5b9b2303f10?auto=format&fit=crop&w=1200&q=80' },
+  { keys: ['leh', 'ladakh', 'pangong', 'nubra', 'spiti'], url: 'https://images.unsplash.com/photo-1581793745862-99fde7fa73d2?auto=format&fit=crop&w=1200&q=80' },
+  { keys: ['shimla', 'kufri', 'the ridge'], url: 'https://images.unsplash.com/photo-1597074866923-dc0589150358?auto=format&fit=crop&w=1200&q=80' },
+  { keys: ['kerala', 'alleppey', 'kochi', 'cochin', 'kumarakom'], url: 'https://images.unsplash.com/photo-1602216056096-3b40cc0c9944?auto=format&fit=crop&w=1200&q=80' },
+  { keys: ['varanasi', 'banaras', 'kashi', 'ganga ghat'], url: 'https://images.unsplash.com/photo-1561361513-2d000a50f0dc?auto=format&fit=crop&w=1200&q=80' },
+  { keys: ['rishikesh', 'haridwar', 'laxman jhula'], url: 'https://images.unsplash.com/photo-1561359313-0639aad49ca6?auto=format&fit=crop&w=1200&q=80' },
+  { keys: ['agra', 'taj mahal'], url: 'https://images.unsplash.com/photo-1564507592333-c60657eea523?auto=format&fit=crop&w=1200&q=80' },
+  { keys: ['hampi', 'vijayanagara', 'tungabhadra'], url: 'https://images.unsplash.com/photo-1620766182966-c6eb5ed2b788?auto=format&fit=crop&w=1200&q=80' },
+  { keys: ['coorg', 'kodagu', 'madikeri'], url: 'https://images.unsplash.com/photo-1582510003544-4d00b7f74220?auto=format&fit=crop&w=1200&q=80' },
+  { keys: ['kashmir', 'srinagar', 'gulmarg', 'pahalgam', 'dal lake'], url: 'https://images.unsplash.com/photo-1598091383021-15ddea10925d?auto=format&fit=crop&w=1200&q=80' },
+  { keys: ['andaman', 'nicobar', 'havelock', 'radhanagar'], url: 'https://images.unsplash.com/photo-1589308078059-be1415eab4c3?auto=format&fit=crop&w=1200&q=80' },
+  { keys: ['pondicherry', 'puducherry', 'auroville'], url: 'https://images.unsplash.com/photo-1582510003544-4d00b7f74220?auto=format&fit=crop&w=1200&q=80' },
+  { keys: ['darjeeling', 'ghoom', 'tiger hill'], url: 'https://images.unsplash.com/photo-1544735716-392fe2489ffa?auto=format&fit=crop&w=1200&q=80' },
+  { keys: ['amritsar', 'golden temple'], url: 'https://images.unsplash.com/photo-1582510003544-4d00b7f74220?auto=format&fit=crop&w=1200&q=80' },
+  { keys: ['mysore', 'mysuru'], url: 'https://images.unsplash.com/photo-1600100397608-f010e427771e?auto=format&fit=crop&w=1200&q=80' },
+  { keys: ['bangalore', 'bengaluru'], url: 'https://images.unsplash.com/photo-1596176530529-78163a4f7af2?auto=format&fit=crop&w=1200&q=80' },
+  { keys: ['mumbai', 'bombay'], url: 'https://images.unsplash.com/photo-1570168007204-dfb528c6958f?auto=format&fit=crop&w=1200&q=80' },
+  { keys: ['delhi', 'new delhi'], url: 'https://images.unsplash.com/photo-1587474260584-136574528ed5?auto=format&fit=crop&w=1200&q=80' }
+];
+
+const DEFAULT_TRAVEL_IMAGE = 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1200&q=80';
+
+function resolveDestinationImage(destination, title) {
+  const text = `${destination || ''} ${title || ''}`.toLowerCase();
+  for (const item of DESTINATION_IMAGE_MAP) {
+    if (item.keys.some(k => text.includes(k))) return item.url;
+  }
+  if (/beach|sea|coast|island|ocean/i.test(text)) return 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1200&q=80';
+  if (/mountain|trek|hill|peak|valley/i.test(text)) return 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1200&q=80';
+  if (/forest|jungle|wildlife|national park|safari/i.test(text)) return 'https://images.unsplash.com/photo-1511497584788-87676104235f?auto=format&fit=crop&w=1200&q=80';
+  return DEFAULT_TRAVEL_IMAGE;
+}
+
 export default {
   async fetch(request, env, ctx) {
     const requestId = request.headers.get('X-Request-Id') || ('jh_' + crypto.randomUUID().slice(0, 8));
@@ -839,7 +889,7 @@ async function handleRequest(request, env, ctx, requestId) {
               currency: trip.currency || 'INR',
               availableSeats: trip.availableSeats !== undefined ? trip.availableSeats : (trip.capacity || 10),
               capacity: trip.capacity || 10,
-              coverImage: trip.coverImage,
+              coverImage: (trip.coverImage && !isGenericPlaceholder(trip.coverImage)) ? trip.coverImage : resolveDestinationImage(trip.destination, trip.title),
               status: trip.status || 'upcoming',
               organiserId: trip.organiserId ? trip.organiserId.toString() : ''
             } : (r.trip ? { _id: r.trip.toString() } : undefined),
@@ -951,7 +1001,7 @@ async function handleRequest(request, env, ctx, requestId) {
               currency: trip.currency || 'INR',
               availableSeats: trip.availableSeats !== undefined ? trip.availableSeats : (trip.capacity || 10),
               capacity: trip.capacity || 10,
-              coverImage: trip.coverImage,
+              coverImage: (trip.coverImage && !isGenericPlaceholder(trip.coverImage)) ? trip.coverImage : resolveDestinationImage(trip.destination, trip.title),
               status: trip.status || 'upcoming'
             } : undefined,
             mysteryTrip: mysteryTrip ? {
@@ -1521,7 +1571,7 @@ async function handleRequest(request, env, ctx, requestId) {
             estimatedBudget: t.estimatedBudget || 1000,
             price: t.price || t.estimatedBudget || 1000,
             currency: t.currency || 'INR',
-            coverImage: t.coverImage || 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=1200&q=80',
+            coverImage: (t.coverImage && !isGenericPlaceholder(t.coverImage)) ? t.coverImage : resolveDestinationImage(t.destination, t.title),
             status: t.status || 'upcoming',
             capacity: t.capacity || 15,
             availableSeats: t.availableSeats !== undefined ? t.availableSeats : (t.capacity || 15),
@@ -1603,7 +1653,7 @@ async function handleRequest(request, env, ctx, requestId) {
           currency: currency || user.preferences?.currency || 'INR',
           capacity: tripCapacity,
           availableSeats: tripCapacity,
-          coverImage: coverImage || 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=1200&q=80',
+          coverImage: (coverImage && !isGenericPlaceholder(coverImage)) ? coverImage : resolveDestinationImage(destination, title),
           status: 'upcoming',
           isPublished: tripIsPublished,
           publicationStatus: tripPublicationStatus,

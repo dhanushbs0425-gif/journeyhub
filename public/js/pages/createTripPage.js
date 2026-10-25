@@ -120,8 +120,12 @@ const CreateTripPage = {
               <!-- Cover Image & Description -->
               <div class="form-group">
                 <label class="form-label" for="trip-cover">Cover Image URL</label>
-                <input type="url" id="trip-cover" class="form-control" value="https://images.unsplash.com/photo-1599661046289-e31897846e41?auto=format&fit=crop&w=1200&q=80" placeholder="https://..." />
-                <div class="form-hint">High resolution travel photo for public card display</div>
+                <input type="url" id="trip-cover" class="form-control" placeholder="Optional - auto-selected for destination if left blank" />
+                <div class="form-hint">Paste custom image URL or leave blank to automatically select an authentic destination photo</div>
+                <div id="trip-cover-preview-wrapper" style="margin-top: 0.75rem; border-radius: 8px; overflow: hidden; height: 160px; background: #1e293b; display: none; position: relative;">
+                  <img id="trip-cover-preview-img" src="" alt="Cover preview" style="width: 100%; height: 100%; object-fit: cover;" onerror="if(window.DestinationImages){window.DestinationImages.handleImageError(this);}" />
+                  <div style="position: absolute; bottom: 8px; left: 8px; background: rgba(0,0,0,0.6); color: #fff; font-size: 0.75rem; padding: 2px 8px; border-radius: 4px;" id="trip-cover-preview-label">Destination Image Preview</div>
+                </div>
               </div>
 
               <div class="form-group">
@@ -185,6 +189,40 @@ const CreateTripPage = {
       updateCurrencyDisplay();
     }
 
+    const destInput = document.getElementById('trip-destination');
+    const coverInput = document.getElementById('trip-cover');
+    const previewWrapper = document.getElementById('trip-cover-preview-wrapper');
+    const previewImg = document.getElementById('trip-cover-preview-img');
+    const previewLabel = document.getElementById('trip-cover-preview-label');
+
+    const updatePreview = () => {
+      if (!previewWrapper || !previewImg) return;
+      const customUrl = coverInput?.value.trim();
+      const dest = destInput?.value.trim();
+      if (customUrl) {
+        previewImg.src = customUrl;
+        if (previewLabel) previewLabel.textContent = 'Custom Image Preview';
+        previewWrapper.style.display = 'block';
+      } else if (dest && window.DestinationImages) {
+        const resolved = window.DestinationImages.resolve(dest);
+        previewImg.src = resolved;
+        if (previewLabel) previewLabel.textContent = `Auto-Selected for ${dest}`;
+        previewWrapper.style.display = 'block';
+      } else {
+        previewWrapper.style.display = 'none';
+      }
+    };
+
+    if (destInput) {
+      destInput.addEventListener('input', updatePreview);
+      destInput.addEventListener('change', updatePreview);
+    }
+    if (coverInput) {
+      coverInput.addEventListener('input', updatePreview);
+      coverInput.addEventListener('change', updatePreview);
+    }
+    updatePreview();
+
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
 
@@ -196,7 +234,10 @@ const CreateTripPage = {
       const capacity = Number(document.getElementById('trip-capacity')?.value) || 10;
       const price = Number(document.getElementById('trip-price')?.value) || 15000;
       const currency = document.getElementById('trip-currency')?.value || 'INR';
-      const coverImage = document.getElementById('trip-cover')?.value.trim();
+      let coverImage = document.getElementById('trip-cover')?.value.trim();
+      if (!coverImage || (window.DestinationImages && window.DestinationImages.isGenericPlaceholder(coverImage))) {
+        coverImage = window.DestinationImages ? window.DestinationImages.resolve(destination, title) : (coverImage || '');
+      }
       const description = document.getElementById('trip-desc')?.value.trim();
       const isPublished = document.getElementById('trip-publish')?.checked !== false;
 
@@ -232,7 +273,7 @@ const CreateTripPage = {
           price,
           estimatedBudget: price,
           currency,
-          coverImage: coverImage || 'https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?auto=format&fit=crop&w=1200&q=80',
+          coverImage,
           description,
           tags,
           isPublished,

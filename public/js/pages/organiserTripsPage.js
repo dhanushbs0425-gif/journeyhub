@@ -182,8 +182,10 @@ const OrganiserTripsPage = {
           <div style="display: flex; gap: 1.25rem; flex-wrap: wrap; justify-content: space-between; align-items: center;">
             <!-- Trip Header & Image -->
             <div style="display: flex; gap: 1rem; align-items: center; flex: 2; min-width: 300px;">
-              <img src="${trip.coverImage || 'https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?auto=format&fit=crop&w=300&q=80'}" 
-                   style="width: 100px; height: 80px; object-fit: cover; border-radius: 8px; flex-shrink: 0;" />
+              <img src="${window.DestinationImages ? window.DestinationImages.getTripCoverImage(trip) : (trip.coverImage || 'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=300&q=80')}" 
+                   alt="${trip.title}"
+                   style="width: 100px; height: 80px; object-fit: cover; border-radius: 8px; flex-shrink: 0;"
+                   onerror="if(window.DestinationImages){window.DestinationImages.handleImageError(this, '${(trip.destination||'').replace(/'/g, "\\'")}', '${(trip.title||'').replace(/'/g, "\\'")}');}" loading="lazy" />
               <div>
                 <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.25rem;">
                   <h3 style="font-size: 1.15rem; font-weight: 700; color: var(--text-main); margin: 0;">
