@@ -1,14 +1,21 @@
 /**
  * JourneyHub Application Bootstrapper
  * Features: Non-blocking independent frontend initialization, background session hydration,
- * and seamless cold-start recovery.
+ * and seamless cold-start recovery across desktop and mobile browsers.
  */
-document.addEventListener('DOMContentLoaded', () => {
+function bootJourneyHub() {
+  if (window._journeyHubMounted) return;
+  window._journeyHubMounted = true;
+
   console.log('[JourneyHub] Initializing client application shell...');
 
   // 1. Initialize Cloud Backend Status Manager (cold-start / wakeup monitor)
   if (window.BackendStatus && window.BackendStatus.init) {
-    window.BackendStatus.init();
+    try {
+      window.BackendStatus.init();
+    } catch (e) {
+      console.warn('[JourneyHub] BackendStatus warning:', e);
+    }
   }
 
   // 2. Render Shell Components Immediately (Instant load, zero blocking)
@@ -20,8 +27,12 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // 3. Launch SPA Router immediately (displays Landing, Destinations, or cached Dashboard)
-  if (window.Router && window.Router.init) {
-    window.Router.init();
+  try {
+    if (window.Router && window.Router.init) {
+      window.Router.init();
+    }
+  } catch (err) {
+    console.warn('[JourneyHub] Router init warning:', err.message);
   }
 
   // 4. Fade out initial branded boot preloader
@@ -29,8 +40,10 @@ document.addEventListener('DOMContentLoaded', () => {
   if (preloader) {
     setTimeout(() => {
       preloader.classList.add('fade-out');
-      setTimeout(() => preloader.remove(), 400);
-    }, 250);
+      setTimeout(() => {
+        if (preloader && preloader.parentNode) preloader.parentNode.removeChild(preloader);
+      }, 400);
+    }, 200);
   }
 
   // 5. Subscribe state changes to re-render navbar and sidebar
@@ -82,4 +95,10 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   console.log('[JourneyHub] Application shell mounted successfully.');
-});
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', bootJourneyHub);
+} else {
+  bootJourneyHub();
+}

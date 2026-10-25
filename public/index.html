@@ -39,6 +39,18 @@
       <p class="jh-preloader-status" id="jh-preloader-status">Initializing travel workspace...</p>
     </div>
   </div>
+  <script>
+    // Failsafe: Automatically remove boot preloader after 1.5s on mobile/slow connections
+    setTimeout(function() {
+      var p = document.getElementById('jh-boot-preloader');
+      if (p) {
+        p.classList.add('fade-out');
+        setTimeout(function() {
+          if (p && p.parentNode) p.parentNode.removeChild(p);
+        }, 400);
+      }
+    }, 1500);
+  </script>
 
   <!-- App Main Shell -->
   <div id="app-shell">
@@ -117,7 +129,7 @@
   <script src="/js/pages/wishlistPage.js?v=3.2"></script>
 
   <!-- Router & Application Initialization -->
-  <script src="/js/router.js?v=3.2"></script>
-  <script src="/js/app.js?v=3.2"></script>
+  <script src="/js/router.js?v=3.5"></script>
+  <script src="/js/app.js?v=3.5"></script>
 </body>
 </html>
