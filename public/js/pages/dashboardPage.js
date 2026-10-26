@@ -369,8 +369,6 @@ const DashboardPage = {
           }).join('')}
         </div>
       `;
-        </div>
-      `;
     } catch (err) {
       if (!silent) {
         if (window.API && window.API.renderRetryCard) {
