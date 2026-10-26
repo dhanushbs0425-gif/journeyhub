@@ -751,16 +751,129 @@ async function handleRequest(request, env, ctx, requestId) {
           .sort({ addedAt: -1 })
           .toArray();
 
+        // Separate and populate trips and destinations
+        const tripIds = items.map(i => safeObjectId(i.tripId)).filter(Boolean);
+        const destIds = items.map(i => safeObjectId(i.destinationId)).filter(Boolean);
+
+        const [tripsData, destsData] = await Promise.all([
+          tripIds.length > 0 ? db.collection('trips').find({ _id: { $in: tripIds } }).toArray() : [],
+          destIds.length > 0 ? db.collection('destinations').find({ _id: { $in: destIds } }).toArray() : []
+        ]);
+
+        const tripMap = new Map();
+        tripsData.forEach(t => tripMap.set(t._id.toString(), {
+          ...t,
+          _id: t._id.toString(),
+          coverImage: (t.coverImage && !isGenericPlaceholder(t.coverImage)) ? t.coverImage : resolveDestinationImage(t.destination, t.title)
+        }));
+
+        const destMap = new Map();
+        destsData.forEach(d => destMap.set(d._id.toString(), { ...d, _id: d._id.toString() }));
+
+        const populatedTrips = [];
+        const populatedDests = [];
+        const wishlistTripIds = [];
+        const wishlistDestIds = [];
+
+        items.forEach(i => {
+          if (i.tripId) {
+            const tStr = i.tripId.toString();
+            wishlistTripIds.push(tStr);
+            if (tripMap.has(tStr)) populatedTrips.push({ ...tripMap.get(tStr), wishlistId: i._id.toString(), addedAt: i.addedAt });
+          }
+          if (i.destinationId) {
+            const dStr = i.destinationId.toString();
+            wishlistDestIds.push(dStr);
+            if (destMap.has(dStr)) populatedDests.push({ ...destMap.get(dStr), wishlistId: i._id.toString(), addedAt: i.addedAt });
+          }
+        });
+
         return jsonResponse({
           success: true,
           count: items.length,
-          wishlistIds: items.map(i => (i.destinationId || '').toString()),
-          destinations: items.map(i => ({ ...i, _id: i._id.toString() }))
+          tripCount: populatedTrips.length,
+          destinationCount: populatedDests.length,
+          wishlistIds: wishlistDestIds,
+          wishlistTripIds,
+          wishlistDestinationIds: wishlistDestIds,
+          trips: populatedTrips,
+          destinations: populatedDests,
+          wishlist: items
         }, 200, {}, requestId);
       });
     } catch (err) {
       console.error(`[Worker Wishlist Error ${requestId}]:`, err);
-      return jsonResponse({ success: true, count: 0, wishlistIds: [], destinations: [] }, 200, {}, requestId);
+      return jsonResponse({ success: true, count: 0, wishlistIds: [], wishlistTripIds: [], trips: [], destinations: [] }, 200, {}, requestId);
+    }
+  }
+
+  // 11.5 Toggle Trip in Wishlist (POST/DELETE /api/wishlist/trips/:tripId)
+  const wishlistTripMatch = url.pathname.match(/^\/api\/wishlist\/trips\/([a-fA-F0-9]{24})(?:\/toggle)?$/);
+  if (wishlistTripMatch && (request.method === 'POST' || request.method === 'DELETE')) {
+    const token = extractToken(request);
+    if (!token) {
+      return jsonResponse({ success: false, message: 'Authentication required. Please log in.' }, 401, {}, requestId);
+    }
+    const decoded = verifyToken(token, env);
+    if (!decoded || !decoded.id) {
+      return jsonResponse({ success: false, message: 'Invalid or expired session token.' }, 401, {}, requestId);
+    }
+
+    const dbAvailable = Boolean(env.MONGODB_URI);
+    if (!dbAvailable) {
+      return proxyToBackend(request, env, url, null, requestId);
+    }
+
+    try {
+      const tripIdParam = wishlistTripMatch[1];
+      const tripObjId = safeObjectId(tripIdParam);
+      const userObjId = safeObjectId(decoded.id);
+
+      return await useDb(env, async (db) => {
+        const trip = await db.collection('trips').findOne({ _id: tripObjId });
+        if (!trip) {
+          return jsonResponse({ success: false, message: 'Trip not found.' }, 404, {}, requestId);
+        }
+
+        const query = {
+          $or: [{ userId: userObjId }, { userId: decoded.id }],
+          tripId: tripObjId
+        };
+
+        const existing = await db.collection('wishlists').findOne(query);
+
+        if (request.method === 'DELETE' || existing) {
+          if (existing) {
+            await db.collection('wishlists').deleteOne({ _id: existing._id });
+          }
+          return jsonResponse({
+            success: true,
+            saved: false,
+            message: `Removed "${trip.title}" from your wishlist.`,
+            tripId: tripIdParam
+          }, 200, {}, requestId);
+        }
+
+        const newDoc = {
+          userId: userObjId || decoded.id,
+          tripId: tripObjId,
+          addedAt: new Date(),
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        const insertRes = await db.collection('wishlists').insertOne(newDoc);
+
+        return jsonResponse({
+          success: true,
+          saved: true,
+          message: `"${trip.title}" saved to your wishlist!`,
+          wishlistId: insertRes.insertedId.toString(),
+          tripId: tripIdParam
+        }, 201, {}, requestId);
+      });
+    } catch (err) {
+      console.error(`[Worker Wishlist Toggle Error ${requestId}]:`, err);
+      return jsonResponse({ success: false, message: err.message || 'Error updating wishlist' }, 500, {}, requestId);
     }
   }
 
@@ -1928,6 +2041,113 @@ async function handleRequest(request, env, ctx, requestId) {
     } catch (err) {
       console.error(`[Worker Create Trip Error ${requestId}]:`, err);
       return jsonResponse({ success: false, message: err.message || 'Error creating trip' }, 500, {}, requestId);
+    }
+  }
+
+  // 19.5 Reviews for Trip (GET/POST /api/trips/:tripId/reviews)
+  const tripReviewsMatch = url.pathname.match(/^\/api\/trips\/([a-fA-F0-9]{24})\/reviews$/);
+  if (tripReviewsMatch && request.method === 'GET') {
+    const dbAvailable = Boolean(env.MONGODB_URI);
+    if (!dbAvailable) {
+      return proxyToBackend(request, env, url, null, requestId);
+    }
+    try {
+      const tripIdParam = tripReviewsMatch[1];
+      const tripObjId = safeObjectId(tripIdParam);
+      return await useDb(env, async (db) => {
+        const reviews = await db.collection('reviews').find({ trip: tripObjId }).sort({ createdAt: -1 }).toArray();
+        const userIds = reviews.map(r => safeObjectId(r.user)).filter(Boolean);
+        const users = await db.collection('users').find({ _id: { $in: userIds } }).toArray();
+        const userMap = new Map();
+        users.forEach(u => userMap.set(u._id.toString(), { _id: u._id.toString(), name: u.name, avatar: u.avatar || u.profile?.avatar }));
+
+        const populated = reviews.map(r => ({
+          _id: r._id.toString(),
+          trip: tripIdParam,
+          rating: Number(r.rating) || 5,
+          title: r.title || '',
+          comment: r.comment || '',
+          createdAt: r.createdAt,
+          user: userMap.get(r.user?.toString()) || { name: 'Verified Traveler' }
+        }));
+
+        const count = populated.length;
+        const totalRating = populated.reduce((s, r) => s + r.rating, 0);
+        const averageRating = count > 0 ? Number((totalRating / count).toFixed(1)) : 0;
+
+        return jsonResponse({
+          success: true,
+          count,
+          averageRating,
+          reviews: populated
+        }, 200, {}, requestId);
+      });
+    } catch (err) {
+      console.error(`[Worker Reviews Error ${requestId}]:`, err);
+      return jsonResponse({ success: false, message: err.message || 'Error fetching reviews' }, 500, {}, requestId);
+    }
+  }
+
+  if (tripReviewsMatch && request.method === 'POST') {
+    const token = extractToken(request);
+    if (!token) {
+      return jsonResponse({ success: false, message: 'Authentication required. Please log in.' }, 401, {}, requestId);
+    }
+    const decoded = verifyToken(token, env);
+    if (!decoded || !decoded.id) {
+      return jsonResponse({ success: false, message: 'Invalid or expired session token.' }, 401, {}, requestId);
+    }
+
+    const dbAvailable = Boolean(env.MONGODB_URI);
+    if (!dbAvailable) {
+      return proxyToBackend(request, env, url, null, requestId);
+    }
+
+    try {
+      const tripIdParam = tripReviewsMatch[1];
+      const tripObjId = safeObjectId(tripIdParam);
+      const userObjId = safeObjectId(decoded.id);
+      const body = await request.json().catch(() => ({}));
+      const numRating = Number(body.rating);
+
+      if (!numRating || numRating < 1 || numRating > 5) {
+        return jsonResponse({ success: false, message: 'Rating must be between 1 and 5 stars.' }, 400, {}, requestId);
+      }
+      if (!body.comment || !body.comment.trim()) {
+        return jsonResponse({ success: false, message: 'Please provide a review comment.' }, 400, {}, requestId);
+      }
+
+      return await useDb(env, async (db) => {
+        const existing = await db.collection('reviews').findOne({ trip: tripObjId, user: userObjId });
+        if (existing) {
+          return jsonResponse({ success: false, message: 'You have already submitted a review for this expedition.' }, 400, {}, requestId);
+        }
+
+        const newDoc = {
+          trip: tripObjId,
+          user: userObjId,
+          rating: numRating,
+          title: (body.title || '').trim(),
+          comment: body.comment.trim(),
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+
+        const result = await db.collection('reviews').insertOne(newDoc);
+        const user = await db.collection('users').findOne({ _id: userObjId });
+
+        return jsonResponse({
+          success: true,
+          message: 'Review published successfully!',
+          review: {
+            ...newDoc,
+            _id: result.insertedId.toString(),
+            user: { _id: decoded.id, name: user?.name || 'Verified Traveler', avatar: user?.avatar }
+          }
+        }, 201, {}, requestId);
+      });
+    } catch (err) {
+      return jsonResponse({ success: false, message: err.message || 'Error saving review' }, 500, {}, requestId);
     }
   }
 

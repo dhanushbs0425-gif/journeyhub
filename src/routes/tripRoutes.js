@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const tripController = require('../controllers/tripController');
 const joinRequestController = require('../controllers/joinRequestController');
+const reviewRoutes = require('./reviewRoutes');
 const { protect, optionalAuth, requireOrganiser } = require('../middleware/auth');
 const { requireTripMember, requireTripEditor, requireTripOwner } = require('../middleware/tripAuth');
 
@@ -32,5 +33,8 @@ router.put('/:tripId/unpublish', requireOrganiser, tripController.unpublishTrip)
 router.post('/:tripId/join-requests', joinRequestController.createJoinRequest);
 router.get('/:tripId/join-requests', requireOrganiser, joinRequestController.getTripJoinRequests);
 router.patch('/:tripId/join-requests/:requestId', requireOrganiser, joinRequestController.respondToJoinRequest);
+
+// Reviews for Trip
+router.use('/:tripId/reviews', reviewRoutes);
 
 module.exports = router;

@@ -30,10 +30,12 @@ const reportRoutes = require('./src/routes/reportRoutes');
 const joinRequestRoutes = require('./src/routes/joinRequestRoutes');
 const mysteryTripRoutes = require('./src/routes/mysteryTripRoutes');
 const wishlistRoutes = require('./src/routes/wishlistRoutes');
+const reviewRoutes = require('./src/routes/reviewRoutes');
 
 const User = require('./src/models/User');
 const { seed } = require('./src/utils/seedData');
 const { seedOrganisers } = require('./scripts/seedOrganisers');
+const { seedAllFeaturesForKavya } = require('./scripts/seedAllFeaturesForKavya');
 
 const app = express();
 const server = http.createServer(app);
@@ -88,6 +90,7 @@ app.use('/api/trips/:tripId/scenarios', scenarioRoutes);
 app.use('/api/trips/:tripId/diary', diaryRoutes);
 app.use('/api/trips/:tripId/bookings', bookingRoutes);
 app.use('/api/trips/:tripId/availability', availabilityRoutes);
+app.use('/api/trips/:tripId/reviews', reviewRoutes);
 
 // Global routes
 app.use('/api/notifications', notificationRoutes);
@@ -165,6 +168,7 @@ async function startServer() {
     }
     // Always ensure predefined accounts (Organisers & Test Travelers) exist without overwriting
     await seedOrganisers();
+    await seedAllFeaturesForKavya().catch(err => console.warn('[SEED] Kavya feature seed note:', err.message));
   } catch (error) {
     console.error('[DB] Database initialization warning:', error.message);
   }

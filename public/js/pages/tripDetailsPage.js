@@ -25,6 +25,16 @@ const TripDetailsPage = {
       const res = await window.API.get(`/api/trips/${tripId}`);
       const trip = res.trip;
       TripDetailsPage.tripData = trip;
+
+      // Feature 5: Fetch Trip Reviews & Ratings
+      let reviewsData = { count: 0, averageRating: 0, reviews: [] };
+      try {
+        const revRes = await window.API.get(`/api/trips/${tripId}/reviews`);
+        if (revRes && revRes.success) reviewsData = revRes;
+      } catch (e) {
+        console.warn('[TripDetails] Could not fetch reviews:', e.message);
+      }
+      TripDetailsPage.reviewsData = reviewsData;
       window.State.setCurrentTrip(trip);
       window.Sidebar.render();
       window.Navbar.render();
@@ -215,6 +225,55 @@ const TripDetailsPage = {
           </div>
           <div class="jh-card-body">
             ${activitiesHtml}
+          </div>
+        </div>
+
+        <!-- Feature 5: Traveler Reviews & Ratings -->
+        <div class="jh-card" style="margin-bottom: 2rem;">
+          <div class="jh-card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+            <div>
+              <h3 class="jh-card-title"><i class="fas fa-star" style="color: #f59e0b;"></i> Traveler Reviews & Ratings</h3>
+              <div style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.2rem;">
+                ${reviewsData.count > 0 ? `
+                  <span style="font-weight: 700; color: #f59e0b; font-size: 1rem;"><i class="fas fa-star"></i> ${reviewsData.averageRating} / 5.0</span>
+                  <span style="color: var(--text-muted); margin-left: 0.4rem;">(${reviewsData.count} verified review${reviewsData.count === 1 ? '' : 's'})</span>
+                ` : 'No reviews submitted yet. Be the first to share feedback!'}
+              </div>
+            </div>
+            <div>
+              <button class="btn btn-teal btn-sm" onclick="TripDetailsPage.openReviewModal('${trip._id}')">
+                <i class="fas fa-pen"></i> Write a Review
+              </button>
+            </div>
+          </div>
+          <div class="jh-card-body">
+            ${reviewsData.reviews && reviewsData.reviews.length > 0 ? `
+              <div style="display: grid; gap: 1rem;">
+                ${reviewsData.reviews.map(r => `
+                  <div style="padding: 1rem; border-radius: 8px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                      <div style="display: flex; align-items: center; gap: 0.6rem;">
+                        <img src="${r.user?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80'}" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover;" />
+                        <div>
+                          <div style="font-size: 0.85rem; font-weight: 700;">${r.user?.name || 'Verified Traveler'}</div>
+                          <div style="font-size: 0.72rem; color: var(--text-muted);">${new Date(r.createdAt).toLocaleDateString()}</div>
+                        </div>
+                      </div>
+                      <div style="color: #f59e0b; font-size: 0.9rem;">
+                        ${Array.from({ length: 5 }).map((_, i) => `<i class="${i < r.rating ? 'fas' : 'far'} fa-star"></i>`).join('')}
+                      </div>
+                    </div>
+                    ${r.title ? `<div style="font-weight: 600; font-size: 0.9rem; margin-bottom: 0.25rem;">${r.title}</div>` : ''}
+                    <p style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5; margin: 0;">${r.comment}</p>
+                  </div>
+                `).join('')}
+              </div>
+            ` : `
+              <div style="text-align: center; padding: 2rem 1rem; color: var(--text-muted);">
+                <i class="far fa-comment-dots" style="font-size: 2rem; margin-bottom: 0.5rem; display: block; opacity: 0.6;"></i>
+                <p style="font-size: 0.9rem; margin: 0;">No reviews written for this expedition yet. Join this journey to review it!</p>
+              </div>
+            `}
           </div>
         </div>
 
@@ -471,6 +530,108 @@ const TripDetailsPage = {
       await TripDetailsPage.mount({ tripId });
     } catch (err) {
       window.Toast?.show('Could not update publication status: ' + err.message, 'error');
+    }
+  },
+
+  openReviewModal(tripId) {
+    if (!window.State.currentUser) {
+      window.Toast?.show('Please log in to submit a trip review.', 'warning');
+      window.location.hash = '#/login';
+      return;
+    }
+
+    let selectedRating = 5;
+
+    window.Modal.open({
+      title: 'Write a Trip Review',
+      body: `
+        <div style="margin-bottom: 1.25rem;">
+          <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
+            Share your feedback on the expedition itinerary, accommodations, and organisation.
+          </p>
+
+          <div class="form-group">
+            <label class="form-label" style="display: block; margin-bottom: 0.4rem;">Your Star Rating <span style="color: #ef4444;">*</span></label>
+            <div id="review-stars-selector" style="display: flex; gap: 0.4rem; font-size: 1.5rem; color: #f59e0b; cursor: pointer;">
+              <span class="star-item" data-val="1">★</span>
+              <span class="star-item" data-val="2">★</span>
+              <span class="star-item" data-val="3">★</span>
+              <span class="star-item" data-val="4">★</span>
+              <span class="star-item" data-val="5">★</span>
+            </div>
+            <input type="hidden" id="review-rating-val" value="5" />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="review-title">Review Headline (Optional)</label>
+            <input type="text" id="review-title" class="form-control" placeholder="e.g. Unforgettable Mountain Adventure!" />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="review-comment">Detailed Feedback <span style="color: #ef4444;">*</span></label>
+            <textarea id="review-comment" class="form-control" rows="4" placeholder="What did you love most about this expedition? How was the itinerary and leader?" required></textarea>
+          </div>
+        </div>
+      `,
+      footer: `
+        <button class="btn btn-outline btn-sm" onclick="Modal.close()">Cancel</button>
+        <button class="btn btn-teal btn-sm" id="submit-review-btn" onclick="TripDetailsPage.submitReview('${tripId}')">
+          <i class="fas fa-paper-plane"></i> Publish Review
+        </button>
+      `
+    });
+
+    // Star selection interaction
+    setTimeout(() => {
+      const container = document.getElementById('review-stars-selector');
+      const input = document.getElementById('review-rating-val');
+      if (container && input) {
+        const stars = container.querySelectorAll('.star-item');
+        stars.forEach(star => {
+          star.addEventListener('click', () => {
+            selectedRating = Number(star.getAttribute('data-val'));
+            input.value = selectedRating;
+            stars.forEach((s, idx) => {
+              s.style.opacity = idx < selectedRating ? '1' : '0.3';
+            });
+          });
+        });
+      }
+    }, 50);
+  },
+
+  async submitReview(tripId) {
+    const rating = Number(document.getElementById('review-rating-val')?.value) || 5;
+    const title = document.getElementById('review-title')?.value.trim();
+    const comment = document.getElementById('review-comment')?.value.trim();
+    const btn = document.getElementById('submit-review-btn');
+
+    if (!comment) {
+      window.Toast?.show('Please provide a comment for your review.', 'warning');
+      return;
+    }
+
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = `<span class="spinner" style="width: 14px; height: 14px; margin: 0; display: inline-block;"></span> Publishing...`;
+    }
+
+    try {
+      const res = await window.API.post(`/api/trips/${tripId}/reviews`, {
+        rating,
+        title,
+        comment
+      });
+
+      window.Modal.close();
+      window.Toast?.show(res.message || 'Review published successfully! ⭐', 'success');
+      await TripDetailsPage.mount({ tripId });
+    } catch (err) {
+      window.Toast?.show(err.message || 'Could not publish review', 'error');
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<i class="fas fa-paper-plane"></i> Publish Review`;
+      }
     }
   },
 
