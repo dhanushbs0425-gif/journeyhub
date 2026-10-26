@@ -7,6 +7,7 @@ const { requireTripMember, requireTripEditor, requireTripOwner } = require('../m
 
 // Public / Exploration routes (optional authentication: works for guests, travelers, and organisers)
 router.get('/', optionalAuth, tripController.getTrips);
+router.get('/recommendations', optionalAuth, tripController.getRecommendations);
 router.get('/:tripId', optionalAuth, tripController.getTripById);
 
 // All subsequent mutating routes require authentication

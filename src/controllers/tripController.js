@@ -1,3 +1,4 @@
+const User = require('../models/User');
 const Trip = require('../models/Trip');
 const TripMember = require('../models/TripMember');
 const JoinRequest = require('../models/JoinRequest');
@@ -7,6 +8,7 @@ const BookingDocument = require('../models/BookingDocument');
 const Expense = require('../models/Expense');
 const Notification = require('../models/Notification');
 const { resolveDestinationImage, isGenericPlaceholder } = require('../utils/destinationImages');
+const { recommendTrips } = require('../utils/tripRecommender');
 
 /**
  * Calculate dynamic Trip Readiness Checklist metrics
@@ -800,6 +802,61 @@ async function deleteTrip(req, res, next) {
   }
 }
 
+/**
+ * Smart Trip Recommendations
+ * GET /api/trips/recommendations
+ * Query params: destination, budget, maxBudget, duration, durationDays, interests, limit
+ */
+async function getRecommendations(req, res, next) {
+  try {
+    const { destination, budget, maxBudget, duration, durationDays, interests, limit } = req.query;
+
+    const publishedFilter = {
+      $and: [
+        {
+          $or: [
+            { isPublished: true },
+            { publicationStatus: { $in: ['Published', 'published'] } },
+            { status: { $in: ['published', 'Published'] } }
+          ]
+        },
+        { isPublished: { $ne: false } },
+        { publicationStatus: { $nin: ['Draft', 'draft', 'Unpublished', 'unpublished'] } },
+        { status: { $nin: ['cancelled', 'draft', 'Draft'] } }
+      ]
+    };
+
+    const trips = await Trip.find(publishedFilter)
+      .populate('organiserId', 'name email avatar')
+      .populate('createdBy', 'name email avatar')
+      .lean();
+
+    const criteria = {
+      destination,
+      budget: budget || maxBudget,
+      duration: duration || durationDays,
+      interests,
+      limit: Number(limit) || 20
+    };
+
+    const recommendations = recommendTrips(trips, criteria);
+
+    res.json({
+      success: true,
+      count: recommendations.length,
+      criteria: {
+        destination: destination || null,
+        budget: Number(budget || maxBudget) || null,
+        duration: Number(duration || durationDays) || null,
+        interests: interests ? (Array.isArray(interests) ? interests : interests.split(',')) : []
+      },
+      recommendations
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   createTrip,
   getTrips,
@@ -808,5 +865,6 @@ module.exports = {
   publishTrip,
   unpublishTrip,
   deleteTrip,
-  computeTripReadiness
+  computeTripReadiness,
+  getRecommendations
 };

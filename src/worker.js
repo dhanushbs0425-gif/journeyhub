@@ -1635,6 +1635,208 @@ async function handleRequest(request, env, ctx, requestId) {
     }
   }
 
+  // 18.5 Smart Trip Recommendations (GET /api/trips/recommendations)
+  if (url.pathname === '/api/trips/recommendations' && request.method === 'GET') {
+    const dbAvailable = Boolean(env.MONGODB_URI);
+    if (!dbAvailable) {
+      return proxyToBackend(request, env, url, null, requestId);
+    }
+
+    try {
+      const destination = (url.searchParams.get('destination') || '').trim();
+      const budget = Number(url.searchParams.get('budget') || url.searchParams.get('maxBudget') || 0);
+      const duration = Number(url.searchParams.get('duration') || url.searchParams.get('durationDays') || 0);
+      const rawInterests = url.searchParams.get('interests') || '';
+      const interests = rawInterests ? rawInterests.split(',').map(s => s.trim().toLowerCase()).filter(Boolean) : [];
+      const limit = Number(url.searchParams.get('limit') || 20);
+
+      return await useDb(env, async (db) => {
+        const publishedFilter = {
+          $and: [
+            {
+              $or: [
+                { isPublished: true },
+                { publicationStatus: { $in: ['Published', 'published'] } },
+                { status: { $in: ['published', 'Published'] } }
+              ]
+            },
+            { isPublished: { $ne: false } },
+            { publicationStatus: { $nin: ['Draft', 'draft', 'Unpublished', 'unpublished'] } },
+            { status: { $nin: ['cancelled', 'draft', 'Draft'] } }
+          ]
+        };
+
+        const rawTrips = await db.collection('trips').find(publishedFilter).toArray();
+
+        // Fetch organizers
+        const orgIds = rawTrips.map(t => safeObjectId(t.organiserId || t.createdBy)).filter(Boolean);
+        const organizers = await db.collection('users').find({ _id: { $in: orgIds } }).toArray();
+        const orgMap = new Map();
+        organizers.forEach(u => orgMap.set(u._id.toString(), {
+          _id: u._id.toString(),
+          name: u.name,
+          email: u.email,
+          avatar: u.avatar || u.profile?.avatar
+        }));
+
+        // Score trips
+        const scoredTrips = rawTrips.map(t => {
+          const tripIdStr = t._id.toString();
+          const tripDays = (t.startDate && t.endDate)
+            ? Math.max(1, Math.round((new Date(t.endDate) - new Date(t.startDate)) / (1000 * 60 * 60 * 24)))
+            : (Number(t.durationDays) || 3);
+          const tripCost = Number(t.price || t.estimatedBudget || 0);
+          const availableSeats = t.availableSeats !== undefined ? Number(t.availableSeats) : (Number(t.capacity) || 10);
+          const tripTags = Array.isArray(t.tags) ? t.tags : [];
+          const text = `${t.title || ''} ${t.destination || ''} ${t.description || ''} ${tripTags.join(' ')}`.toLowerCase();
+
+          let destinationPts = 0;
+          let budgetPts = 0;
+          let durationPts = 0;
+          let interestPts = 0;
+          let seatsBonus = 0;
+          const matchReasons = [];
+
+          // 1. Destination
+          if (destination) {
+            const destLower = destination.toLowerCase();
+            const tripDestLower = (t.destination || '').toLowerCase();
+            const tripTitleLower = (t.title || '').toLowerCase();
+            if (tripDestLower === destLower) {
+              destinationPts = 35;
+              matchReasons.push(`Destination exact match: "${t.destination}"`);
+            } else if (tripDestLower.includes(destLower) || destLower.includes(tripDestLower)) {
+              destinationPts = 30;
+              matchReasons.push(`Destination matches "${t.destination}"`);
+            } else if (tripTitleLower.includes(destLower)) {
+              destinationPts = 25;
+              matchReasons.push(`Trip title matches "${t.title}"`);
+            } else if (text.includes(destLower)) {
+              destinationPts = 15;
+              matchReasons.push(`Mentions destination keyword`);
+            }
+          } else {
+            destinationPts = 20;
+          }
+
+          // 2. Budget
+          if (budget > 0) {
+            if (tripCost <= budget) {
+              budgetPts = 30;
+              const savings = budget - tripCost;
+              if (savings > 0) {
+                matchReasons.push(`Within budget: ₹${tripCost.toLocaleString('en-IN')} (saves ₹${savings.toLocaleString('en-IN')})`);
+              } else {
+                matchReasons.push(`Exact match for your ₹${budget.toLocaleString('en-IN')} budget`);
+              }
+            } else if (tripCost <= budget * 1.15) {
+              budgetPts = 18;
+              matchReasons.push(`Slight budget stretch (+${Math.round(((tripCost - budget) / budget) * 100)}%)`);
+            } else if (tripCost <= budget * 1.30) {
+              budgetPts = 10;
+              matchReasons.push(`Moderate budget stretch (+${Math.round(((tripCost - budget) / budget) * 100)}%)`);
+            }
+          } else {
+            budgetPts = 20;
+          }
+
+          // 3. Duration
+          if (duration > 0) {
+            const diff = Math.abs(tripDays - duration);
+            if (diff === 0) {
+              durationPts = 20;
+              matchReasons.push(`Exact duration match: ${tripDays} days`);
+            } else if (diff === 1) {
+              durationPts = 15;
+              matchReasons.push(`Duration: ${tripDays} days (1 day difference)`);
+            } else if (diff === 2) {
+              durationPts = 10;
+              matchReasons.push(`Duration: ${tripDays} days (2 days difference)`);
+            } else if (diff === 3) {
+              durationPts = 5;
+            }
+          } else {
+            durationPts = 15;
+          }
+
+          // 4. Interests
+          if (interests.length > 0) {
+            const matched = interests.filter(intItem => {
+              const inTags = tripTags.some(tag => (tag || '').toLowerCase().includes(intItem) || intItem.includes((tag || '').toLowerCase()));
+              return inTags || text.includes(intItem);
+            });
+            if (matched.length >= 2) {
+              interestPts = 15;
+              matchReasons.push(`Matches interests: ${matched.slice(0, 2).map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(', ')}`);
+            } else if (matched.length === 1) {
+              interestPts = 10;
+              matchReasons.push(`Matches interest: ${matched[0].charAt(0).toUpperCase() + matched[0].slice(1)}`);
+            }
+          } else {
+            interestPts = 10;
+          }
+
+          // 5. Seats Bonus
+          if (availableSeats > 0) {
+            seatsBonus = 5;
+            matchReasons.push(`${availableSeats} seat${availableSeats === 1 ? '' : 's'} available to join`);
+          }
+
+          const rawScore = destinationPts + budgetPts + durationPts + interestPts + seatsBonus;
+          const matchScore = Math.min(100, Math.max(0, Math.round(rawScore)));
+
+          const orgIdStr = (t.organiserId || t.createdBy)?.toString();
+          const org = orgMap.get(orgIdStr) || { name: 'Verified Organiser' };
+
+          return {
+            _id: tripIdStr,
+            id: tripIdStr,
+            title: t.title,
+            destination: t.destination,
+            description: t.description || '',
+            startDate: t.startDate,
+            endDate: t.endDate,
+            estimatedBudget: tripCost,
+            price: tripCost,
+            currency: t.currency || 'INR',
+            capacity: Number(t.capacity) || 15,
+            availableSeats,
+            tags: tripTags,
+            coverImage: (t.coverImage && !isGenericPlaceholder(t.coverImage)) ? t.coverImage : resolveDestinationImage(t.destination, t.title),
+            organiserId: org,
+            createdBy: org,
+            matchScore,
+            matchReasons,
+            tripDays,
+            tripCost
+          };
+        });
+
+        // Sort descending by matchScore
+        scoredTrips.sort((a, b) => b.matchScore - a.matchScore);
+
+        const hasSpecificCriteria = Boolean(destination || budget > 0 || duration > 0 || interests.length > 0);
+        const filtered = hasSpecificCriteria ? scoredTrips.filter(t => t.matchScore >= 40) : scoredTrips;
+        const recommendations = filtered.slice(0, limit);
+
+        return jsonResponse({
+          success: true,
+          count: recommendations.length,
+          criteria: {
+            destination: destination || null,
+            budget: budget || null,
+            duration: duration || null,
+            interests
+          },
+          recommendations
+        }, 200, {}, requestId);
+      });
+    } catch (err) {
+      console.error(`[Worker Recommendations Error ${requestId}]:`, err);
+      return jsonResponse({ success: false, message: err.message || 'Error fetching recommendations' }, 500, {}, requestId);
+    }
+  }
+
   // 19. Create Trip (POST /api/trips)
   if (url.pathname === '/api/trips' && request.method === 'POST') {
     const token = extractToken(request);
