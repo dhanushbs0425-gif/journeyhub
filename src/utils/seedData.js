@@ -192,6 +192,23 @@ async function seed() {
     emergencyContact: { name: 'Jerry Contact', relationship: 'Family', phone: '+91 98450 12345' }
   });
 
+  const userKavya = await User.create({
+    name: 'Kavya Raman',
+    email: 'kavya@journeyhub.dev',
+    password: 'Traveler@2026!',
+    role: 'user',
+    emailVerified: true,
+    phoneVerified: true,
+    verificationMethod: 'password',
+    status: 'active',
+    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80',
+    phone: '9876500001',
+    bio: 'Passionate globetrotter exploring incredible destinations across India.',
+    preferences: { currency: 'INR', budgetAlertThreshold: 80, theme: 'navy', emailNotifications: true },
+    travelInterests: ['Beaches', 'Mountains', 'Cultural'],
+    emergencyContact: { name: 'Ramanathan', relationship: 'Family', phone: '+91 98765 00002' }
+  });
+
   console.log('[SEED] Creating Destination Catalog (72 Incredible Indian Destinations + Global)...');
   const destinations = await Destination.create([
     ...indianDestinations,

@@ -162,10 +162,9 @@ async function startServer() {
     if (userCount === 0) {
       console.log('[INIT] Database is empty. Seeding initial demo data...');
       await seed();
-    } else {
-      // Ensure the three predefined Organiser accounts (Sai, Dhanush, Divya) exist without overwriting
-      await seedOrganisers();
     }
+    // Always ensure predefined accounts (Organisers & Test Travelers) exist without overwriting
+    await seedOrganisers();
   } catch (error) {
     console.error('[DB] Database initialization warning:', error.message);
   }
