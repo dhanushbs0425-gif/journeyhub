@@ -101,7 +101,65 @@ async function seedOrganisers() {
     }
   }
 
-  console.log('[SEED] Organiser seeding completed successfully.');
+  // Predefined Verified Test Traveler
+  const TEST_TRAVELERS = [
+    {
+      name: 'Kavya Raman',
+      email: 'kavya@journeyhub.dev',
+      role: 'user',
+      rawPassword: 'Traveler@2026!',
+      phone: '9876500001',
+      bio: 'Passionate globetrotter exploring incredible destinations across India.',
+      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80'
+    }
+  ];
+
+  for (const trav of TEST_TRAVELERS) {
+    const email = trav.email.toLowerCase().trim();
+    const existingTrav = await User.findOne({
+      $or: [
+        { email },
+        { phone: trav.phone }
+      ]
+    });
+
+    if (!existingTrav) {
+      const createdTrav = await User.create({
+        name: trav.name,
+        email,
+        phone: trav.phone,
+        password: trav.rawPassword, // Automatically hashed by User pre-save hook
+        role: 'user',
+        emailVerified: true,
+        phoneVerified: true,
+        verificationMethod: 'password',
+        status: 'active',
+        avatar: trav.avatar,
+        bio: trav.bio,
+        profile: {
+          avatar: trav.avatar,
+          phone: trav.phone,
+          bio: trav.bio,
+          homeCity: 'Bengaluru',
+          budgetPreference: 'Moderate',
+          preferredCategories: ['Beaches', 'Mountains', 'Cultural']
+        },
+        preferences: {
+          currency: 'INR',
+          theme: 'navy',
+          emailNotifications: true
+        },
+        travelInterests: ['Beaches', 'Mountains', 'Cultural']
+      });
+      console.log(`[SEED] Created Test Traveler account: "${createdTrav.name}" (${createdTrav.email})`);
+      results.push({ name: trav.name, email, status: 'created' });
+    } else {
+      console.log(`[SEED] Test Traveler account "${trav.name}" (${email}) already exists.`);
+      results.push({ name: trav.name, email, status: 'already_exists' });
+    }
+  }
+
+  console.log('[SEED] Organiser and Test Traveler seeding completed successfully.');
   return results;
 }
 
