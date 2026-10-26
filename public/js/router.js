@@ -21,6 +21,7 @@ const Router = {
       { path: '#/settings', page: window.SettingsPage, requiresAuth: true },
 
       // Traveler / User Portal Routes
+      { path: '#/explore', page: window.ExploreTripsPage, requiresAuth: false },
       { path: '#/explore-trips', page: window.ExploreTripsPage, requiresAuth: false },
       { path: '#/my-requests', page: window.MyRequestsPage, requiresAuth: true },
       { path: '#/wishlist', page: window.WishlistPage, requiresAuth: true },

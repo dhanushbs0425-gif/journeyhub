@@ -24,7 +24,8 @@ const DashboardPage = {
       `;
     } else {
       headerActionsHtml = `
-        <a href="#/explore-trips" class="btn btn-teal"><i class="fas fa-compass"></i> Explore Published Trips</a>
+        <a href="#/wishlist" class="btn btn-outline" style="border-color: #ef4444; color: #ef4444;"><i class="fas fa-heart"></i> My Wishlist</a>
+        <a href="#/explore-trips" class="btn btn-teal"><i class="fas fa-compass"></i> Explore & Smart Finder</a>
         <a href="#/my-requests" class="btn btn-outline"><i class="fas fa-paper-plane"></i> My Requests</a>
       `;
     }
@@ -53,6 +54,41 @@ const DashboardPage = {
 
         <!-- Join Requests Real-Time Alert Banner -->
         <div id="dash-requests-banner" style="margin-bottom: 1.5rem;"></div>
+
+        ${!isOrganiser ? `
+          <!-- Traveler Feature Quick-Access Cards -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; margin-bottom: 1.75rem;">
+            <a href="#/explore-trips" class="jh-card" style="padding: 1rem 1.25rem; display: flex; align-items: center; gap: 0.85rem; text-decoration: none; border-left: 4px solid var(--primary-teal); transition: transform 0.15s ease;">
+              <div style="width: 42px; height: 42px; border-radius: 10px; background: rgba(13,148,136,0.12); color: var(--primary-teal); display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+                <i class="fas fa-wand-magic-sparkles"></i>
+              </div>
+              <div>
+                <h4 style="font-size: 0.95rem; font-weight: 700; color: var(--text-main); margin: 0;">Smart Trip Suggestions</h4>
+                <p style="font-size: 0.8rem; color: var(--text-secondary); margin: 0.2rem 0 0 0;">Rule-based recommendation engine</p>
+              </div>
+            </a>
+
+            <a href="#/wishlist" class="jh-card" style="padding: 1rem 1.25rem; display: flex; align-items: center; gap: 0.85rem; text-decoration: none; border-left: 4px solid #ef4444; transition: transform 0.15s ease;">
+              <div style="width: 42px; height: 42px; border-radius: 10px; background: rgba(239,68,68,0.12); color: #ef4444; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+                <i class="fas fa-heart"></i>
+              </div>
+              <div>
+                <h4 style="font-size: 0.95rem; font-weight: 700; color: var(--text-main); margin: 0;">My Saved Wishlist</h4>
+                <p style="font-size: 0.8rem; color: var(--text-secondary); margin: 0.2rem 0 0 0;">Saved expeditions & destinations</p>
+              </div>
+            </a>
+
+            <a href="#/explore-trips" class="jh-card" style="padding: 1rem 1.25rem; display: flex; align-items: center; gap: 0.85rem; text-decoration: none; border-left: 4px solid #f59e0b; transition: transform 0.15s ease;">
+              <div style="width: 42px; height: 42px; border-radius: 10px; background: rgba(245,158,11,0.12); color: #f59e0b; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+                <i class="fas fa-filter"></i>
+              </div>
+              <div>
+                <h4 style="font-size: 0.95rem; font-weight: 700; color: var(--text-main); margin: 0;">Improved Discovery</h4>
+                <p style="font-size: 0.8rem; color: var(--text-secondary); margin: 0.2rem 0 0 0;">Category chips, duration & sort</p>
+              </div>
+            </a>
+          </div>
+        ` : ''}
 
         <!-- Section Title & Search -->
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
@@ -352,12 +388,20 @@ const DashboardPage = {
                   <p class="trip-card-dest"><i class="fas fa-map-marker-alt"></i> ${trip.destination}</p>
                   <p class="trip-card-dates"><i class="far fa-calendar-alt"></i> ${start} – ${end}</p>
 
-                  <div class="trip-card-footer" style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem;">
+                  <div class="trip-card-footer" style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem; flex-wrap: wrap; gap: 0.5rem;">
                     <div>
                       <div class="trip-budget-label">${isOrganiser ? 'Price / Seat' : 'Trip Cost'}</div>
                       <div class="trip-budget-amount">${window.formatCurrency(price, currency)}</div>
                     </div>
-                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <div style="display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap;">
+                      ${!isOrganiser ? `
+                        <a href="#/trips/${trip._id}/itinerary" class="btn btn-outline btn-sm" onclick="event.stopPropagation(); DashboardPage.selectAndNavigate('${trip._id}')" title="Day-Wise Itinerary">
+                          <i class="fas fa-calendar-alt"></i> Itinerary
+                        </a>
+                        <a href="#/trips/${trip._id}/expenses" class="btn btn-outline btn-sm" onclick="event.stopPropagation(); DashboardPage.selectAndNavigate('${trip._id}')" title="Travel Budget Tracker">
+                          <i class="fas fa-wallet"></i> Expenses
+                        </a>
+                      ` : ''}
                       <a href="#/trips/${trip._id}" class="btn btn-teal btn-sm" onclick="event.stopPropagation(); DashboardPage.selectAndNavigate('${trip._id}')" style="display: inline-flex; align-items: center; gap: 0.35rem;">
                         <i class="fas fa-door-open"></i> Workspace <i class="fas fa-arrow-right" style="font-size: 0.75rem;"></i>
                       </a>
